@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Panel Servidor - Comanda Local</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body class="server-page" data-user-role="">
+    <header class="app-header">
+        <div>
+            <p class="eyebrow">Panel del PC servidor</p>
+            <h1>Control de mesas y comandas</h1>
+            <p id="serverUserLabel" class="muted">Usuario: -</p>
+        </div>
+        <div class="action-row">
+            <a class="btn btn-outline" href="index.html">Inicio</a>
+            <a id="linkAdminPanel" class="btn btn-outline hidden" href="admin.html">Admin</a>
+            <button id="btnLogout" class="btn btn-outline" type="button">Salir</button>
+        </div>
+    </header>
+
+    <main class="server-layout">
+        <section class="panel panel-mesas">
+            <div class="panel-title-row">
+                <h2>Mesas</h2>
+                <button id="btnRefreshMesas" class="btn btn-outline" type="button">Refrescar</button>
+            </div>
+            <p class="muted">Vista automatica cada 5 segundos</p>
+            <section id="cashSessionPanel" class="cash-session-panel hidden">
+                <div class="panel-title-row">
+                    <h3>Caja del turno</h3>
+                    <p id="cashSessionStatus" class="muted">Sin datos</p>
+                </div>
+
+                <form id="cashOpenForm" class="form-grid hidden">
+                    <label>
+                        Monto inicial de caja
+                        <input id="cashOpenAmount" type="number" min="0" step="1" placeholder="0">
+                    </label>
+                    <button class="btn btn-primary" type="submit">Abrir caja</button>
+                </form>
+
+                <div id="cashOpenInfo" class="hidden">
+                    <div id="cashAmountGlobalControl" class="cash-amount-global-control">
+                        <p class="muted">Visibilidad de montos</p>
+                        <button
+                            id="cashAmountToggleAll"
+                            type="button"
+                            class="cash-amount-toggle cash-amount-toggle-global"
+                            data-visible="true"
+                            aria-label="Ocultar todos los montos"
+                            title="Ocultar todos los montos"
+                        >
+                            <span class="cash-eye-icon" aria-hidden="true"></span>
+                            <span id="cashAmountGlobalText">Ocultar todos</span>
+                        </button>
+                    </div>
+                    <div class="cash-kpi-grid">
+                        <article class="cash-kpi">
+                            <div class="cash-kpi-head">
+                                <span>Inicial</span>
+                                <button
+                                    type="button"
+                                    class="cash-amount-toggle cash-amount-toggle-item"
+                                    data-cash-amount-eye="inicial"
+                                    data-cash-amount-label="Inicial"
+                                    data-visible="true"
+                                    aria-label="Ocultar monto Inicial"
+                                    title="Ocultar monto Inicial"
+                                >
+                                    <span class="cash-eye-icon" aria-hidden="true"></span>
+                                </button>
+                            </div>
+                            <strong id="cashKpiInicial">$0</strong>
+                        </article>
+                        <article class="cash-kpi">
+                            <div class="cash-kpi-head">
+                                <span>Ventas total</span>
+                                <button
+                                    type="button"
+                                    class="cash-amount-toggle cash-amount-toggle-item"
+                                    data-cash-amount-eye="ventas"
+                                    data-cash-amount-label="Ventas total"
+                                    data-visible="true"
+                                    aria-label="Ocultar monto Ventas total"
+                                    title="Ocultar monto Ventas total"
+                                >
+                                    <span class="cash-eye-icon" aria-hidden="true"></span>
+                                </button>
+                            </div>
+                            <strong id="cashKpiVentas">$0</strong>
+                        </article>
+                        <article class="cash-kpi">
+                            <div class="cash-kpi-head">
+                                <span>Efectivo</span>
+                                <button
+                                    type="button"
+                                    class="cash-amount-toggle cash-amount-toggle-item"
+                                    data-cash-amount-eye="efectivo"
+                                    data-cash-amount-label="Efectivo"
+                                    data-visible="true"
+                                    aria-label="Ocultar monto Efectivo"
+                                    title="Ocultar monto Efectivo"
+                                >
+                                    <span class="cash-eye-icon" aria-hidden="true"></span>
+                                </button>
+                            </div>
+                            <strong id="cashKpiEfectivo">$0</strong>
+                        </article>
+                        <article class="cash-kpi">
+                            <div class="cash-kpi-head">
+                                <span>Tarjeta</span>
+                                <button
+                                    type="button"
+                                    class="cash-amount-toggle cash-amount-toggle-item"
+                                    data-cash-amount-eye="tarjeta"
+                                    data-cash-amount-label="Tarjeta"
+                                    data-visible="true"
+                                    aria-label="Ocultar monto Tarjeta"
+                                    title="Ocultar monto Tarjeta"
+                                >
+                                    <span class="cash-eye-icon" aria-hidden="true"></span>
+                                </button>
+                            </div>
+                            <strong id="cashKpiTarjeta">$0</strong>
+                        </article>
+                        <article class="cash-kpi">
+                            <div class="cash-kpi-head">
+                                <span>Transferencia</span>
+                                <button
+                                    type="button"
+                                    class="cash-amount-toggle cash-amount-toggle-item"
+                                    data-cash-amount-eye="transferencia"
+                                    data-cash-amount-label="Transferencia"
+                                    data-visible="true"
+                                    aria-label="Ocultar monto Transferencia"
+                                    title="Ocultar monto Transferencia"
+                                >
+                                    <span class="cash-eye-icon" aria-hidden="true"></span>
+                                </button>
+                            </div>
+                            <strong id="cashKpiTransferencia">$0</strong>
+                        </article>
+                        <article class="cash-kpi">
+                            <div class="cash-kpi-head">
+                                <span>Efectivo esperado</span>
+                                <button
+                                    type="button"
+                                    class="cash-amount-toggle cash-amount-toggle-item"
+                                    data-cash-amount-eye="esperado"
+                                    data-cash-amount-label="Efectivo esperado"
+                                    data-visible="true"
+                                    aria-label="Ocultar monto Efectivo esperado"
+                                    title="Ocultar monto Efectivo esperado"
+                                >
+                                    <span class="cash-eye-icon" aria-hidden="true"></span>
+                                </button>
+                            </div>
+                            <strong id="cashKpiEsperado">$0</strong>
+                        </article>
+                    </div>
+                    <div class="action-row">
+                        <button id="btnCashRefresh" class="btn btn-outline" type="button">Actualizar caja</button>
+                        <button id="btnCashClose" class="btn btn-danger" type="button">Cerrar caja</button>
+                    </div>
+                </div>
+            </section>
+
+            <div class="cash-distribution-container">
+                <div class="cash-distribution-main">
+                    <div id="mesasGrid" class="mesas-grid"></div>
+                </div>
+
+                <section class="cash-distribution-detail">
+                    <div class="panel-title-row">
+                        <h2 id="detailTitle">Selecciona una mesa</h2>
+                    </div>
+                    <p id="detailMeta" class="muted hidden">-</p>
+
+                    <div id="detailEmpty" class="empty-state">Selecciona una mesa para ver la cuenta.</div>
+
+                    <div id="detailContent" class="detail-content hidden">
+                        <div class="detail-actions">
+                            <button id="btnPrecuenta" class="btn btn-secondary" type="button">Imprimir precuenta</button>
+                            <button id="btnCobrar" class="btn btn-danger" type="button">Cobrar mesa</button>
+                        </div>
+
+                        <div class="total-row">
+                            <span>Total cuenta</span>
+                            <strong id="detailTotal">$0</strong>
+                        </div>
+
+                        <h3>Detalle de la cuenta</h3>
+                        <div id="detailItems" class="comanda-items"></div>
+                    </div>
+
+                    <div id="addProductsHeader" class="panel-title-row hidden" style="margin-top: 1rem;">
+                        <h3>Agregar mas productos</h3>
+                        <button id="btnToggleAddProducts" class="btn btn-outline btn-small" type="button" aria-expanded="false">Mostrar</button>
+                    </div>
+                    <div id="addProductsBody" class="hidden">
+                        <div id="miniMenu" class="mini-menu"></div>
+                        <div id="miniCart" class="cart-list"></div>
+                        <div class="action-row">
+                            <button id="btnAgregarItems" class="btn btn-primary" type="button">Agregar a la comanda</button>
+                            <button id="btnLimpiarMini" class="btn btn-outline" type="button">Limpiar seleccion</button>
+                        </div>
+                    </div>
+
+                    <div class="admin-server-extras">
+                        <details id="dailyMenuPanel" class="admin-collapsible admin-server-extra hidden">
+                            <summary>Menu diario</summary>
+                            <div class="admin-collapsible-body">
+                                <div class="panel-title-row">
+                                    <h3>Menu diario</h3>
+                                    <p id="dailyMenuStatus" class="muted">Sin confirmar</p>
+                                </div>
+                                <p class="muted">Admin define los productos habilitados para mesero en el dia.</p>
+                                <form id="dailyMenuForm" class="form-grid">
+                                    <label>
+                                        Fecha del menu
+                                        <input id="dailyMenuDate" type="date">
+                                    </label>
+                                    <div id="dailyMenuList" class="daily-menu-list"></div>
+                                    <div class="action-row">
+                                        <button id="btnDailyMenuReload" class="btn btn-outline" type="button">Cargar fecha</button>
+                                        <button id="btnDailyMenuConfirm" class="btn btn-primary" type="submit">Confirmar menu del dia</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </details>
+
+                        <details id="salesHistoryPanel" class="admin-collapsible admin-server-extra hidden">
+                            <summary>Historial de ventas</summary>
+                            <div class="admin-collapsible-body">
+                                <div class="panel-title-row">
+                                    <h3>Historial de ventas</h3>
+                                    <p class="muted">Consulta por dia o rango</p>
+                                </div>
+                                <form id="salesHistoryForm" class="form-grid">
+                                    <label>
+                                        Desde
+                                        <input id="salesHistoryFrom" type="date">
+                                    </label>
+                                    <label>
+                                        Hasta
+                                        <input id="salesHistoryTo" type="date">
+                                    </label>
+                                    <div class="action-row">
+                                        <button id="btnSalesHistoryLoad" class="btn btn-outline" type="submit">Consultar historial</button>
+                                    </div>
+                                </form>
+                                <div class="cash-kpi-grid sales-history-kpis">
+                                    <article class="cash-kpi"><span>Ventas</span><strong id="salesHistoryCount">0</strong></article>
+                                    <article class="cash-kpi"><span>Total ventas</span><strong id="salesHistoryTotal">$0</strong></article>
+                                    <article class="cash-kpi"><span>Efectivo</span><strong id="salesHistoryCash">$0</strong></article>
+                                    <article class="cash-kpi"><span>Tarjeta</span><strong id="salesHistoryCard">$0</strong></article>
+                                    <article class="cash-kpi"><span>Transferencia</span><strong id="salesHistoryTransfer">$0</strong></article>
+                                    <article class="cash-kpi"><span>Otros</span><strong id="salesHistoryOther">$0</strong></article>
+                                    <article class="cash-kpi"><span>Propinas</span><strong id="salesHistoryTipsTotal">$0</strong></article>
+                                </div>
+                                <div id="salesHistoryTipsByWaiter" class="sales-history-tips"></div>
+                                <div id="salesHistoryList" class="sales-history-list"></div>
+                            </div>
+                        </details>
+                    </div>
+                </section>
+            </div>
+
+            <div id="cashierSummaryWrap" class="cashier-summary-wrap hidden">
+                <h3>Detalle de cuentas abiertas</h3>
+                <div id="cashierSummaryList" class="cashier-summary-list"></div>
+            </div>
+        </section>
+    </main>
+
+    <div id="cashGate" class="cash-gate hidden">
+        <div class="cash-gate-card">
+            <h2>Inicio de turno de caja</h2>
+            <p class="muted">Ingresa el monto inicial para comenzar a cobrar.</p>
+            <form id="cashGateForm" class="form-grid">
+                <label>
+                    Monto inicial
+                    <input id="cashGateAmount" type="number" min="0" step="1" placeholder="0">
+                </label>
+                <button class="btn btn-primary" type="submit">Abrir caja y continuar</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="cashCloseModal" class="cash-gate hidden">
+        <div class="cash-gate-card cash-close-card">
+            <h2>Cierre de caja</h2>
+            <p class="muted">Confirma el efectivo contado para validar cuadratura del turno.</p>
+
+            <div class="cash-kpi-grid cash-close-summary">
+                <article class="cash-kpi">
+                    <div class="cash-kpi-head">
+                        <span>Ventas total</span>
+                        <button
+                            type="button"
+                            class="cash-amount-toggle cash-amount-toggle-item"
+                            data-cash-amount-eye="ventas"
+                            data-cash-amount-label="Ventas total"
+                            data-visible="true"
+                            aria-label="Ocultar monto Ventas total"
+                            title="Ocultar monto Ventas total"
+                        >
+                            <span class="cash-eye-icon" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                    <strong id="cashCloseVentasTotal">$0</strong>
+                </article>
+                <article class="cash-kpi"><span>Cantidad ventas</span><strong id="cashCloseVentasCantidad">0</strong></article>
+                <article class="cash-kpi">
+                    <div class="cash-kpi-head">
+                        <span>Efectivo ventas</span>
+                        <button
+                            type="button"
+                            class="cash-amount-toggle cash-amount-toggle-item"
+                            data-cash-amount-eye="efectivo"
+                            data-cash-amount-label="Efectivo ventas"
+                            data-visible="true"
+                            aria-label="Ocultar monto Efectivo ventas"
+                            title="Ocultar monto Efectivo ventas"
+                        >
+                            <span class="cash-eye-icon" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                    <strong id="cashCloseEfectivo">$0</strong>
+                </article>
+                <article class="cash-kpi">
+                    <div class="cash-kpi-head">
+                        <span>Tarjeta ventas</span>
+                        <button
+                            type="button"
+                            class="cash-amount-toggle cash-amount-toggle-item"
+                            data-cash-amount-eye="tarjeta"
+                            data-cash-amount-label="Tarjeta ventas"
+                            data-visible="true"
+                            aria-label="Ocultar monto Tarjeta ventas"
+                            title="Ocultar monto Tarjeta ventas"
+                        >
+                            <span class="cash-eye-icon" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                    <strong id="cashCloseTarjeta">$0</strong>
+                </article>
+                <article class="cash-kpi">
+                    <div class="cash-kpi-head">
+                        <span>Transferencia ventas</span>
+                        <button
+                            type="button"
+                            class="cash-amount-toggle cash-amount-toggle-item"
+                            data-cash-amount-eye="transferencia"
+                            data-cash-amount-label="Transferencia ventas"
+                            data-visible="true"
+                            aria-label="Ocultar monto Transferencia ventas"
+                            title="Ocultar monto Transferencia ventas"
+                        >
+                            <span class="cash-eye-icon" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                    <strong id="cashCloseTransferencia">$0</strong>
+                </article>
+                <article class="cash-kpi">
+                    <div class="cash-kpi-head">
+                        <span>Efectivo esperado</span>
+                        <button
+                            type="button"
+                            class="cash-amount-toggle cash-amount-toggle-item"
+                            data-cash-amount-eye="esperado"
+                            data-cash-amount-label="Efectivo esperado"
+                            data-visible="true"
+                            aria-label="Ocultar monto Efectivo esperado"
+                            title="Ocultar monto Efectivo esperado"
+                        >
+                            <span class="cash-eye-icon" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                    <strong id="cashCloseEsperado">$0</strong>
+                </article>
+            </div>
+
+            <form id="cashCloseForm" class="form-grid">
+                <label>
+                    Efectivo contado real (caja)
+                    <input id="cashCloseCounted" type="number" min="0" step="1" placeholder="0" required>
+                </label>
+                <div class="cash-close-diff-row">
+                    <p id="cashCloseDiff" class="muted">Diferencia: $0</p>
+                    <button
+                        type="button"
+                        class="cash-amount-toggle cash-amount-toggle-item"
+                        data-cash-amount-eye="cierre_diferencia"
+                        data-cash-amount-label="Diferencia cierre"
+                        data-visible="true"
+                        aria-label="Ocultar monto Diferencia cierre"
+                        title="Ocultar monto Diferencia cierre"
+                    >
+                        <span class="cash-eye-icon" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <label>
+                    Observaciones de cierre (opcional)
+                    <input id="cashCloseNotes" type="text" maxlength="220" placeholder="Ej: faltante por vuelto">
+                </label>
+                <div class="action-row">
+                    <button id="btnCashCloseCancel" class="btn btn-outline" type="button">Cancelar</button>
+                    <button id="btnCashCloseConfirm" class="btn btn-danger" type="submit">Confirmar cierre</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <aside id="toast" class="toast" aria-live="polite"></aside>
+
+    <script src="assets/js/api.js" defer></script>
+    <script src="assets/js/servidor.js" defer></script>
+</body>
+</html>

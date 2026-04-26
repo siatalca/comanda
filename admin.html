@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Panel Admin - Donde Abel</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body class="admin-page">
+    <header class="app-header">
+        <div>
+            <p class="eyebrow">Administracion local</p>
+            <h1>Panel Admin</h1>
+            <p id="adminUserLabel" class="muted">Usuario: -</p>
+        </div>
+        <div class="action-row">
+            <a class="btn btn-outline" href="servidor.html">Servidor</a>
+            <button id="btnAdminLogout" class="btn btn-outline" type="button">Salir</button>
+        </div>
+    </header>
+
+    <main class="admin-layout">
+        <section id="adminContent">
+            <div class="admin-shell">
+                <section class="panel panel-admin-focus admin-main">
+                    <div class="panel-title-row">
+                        <h2>Menu del dia / Productos activos</h2>
+                        <a class="btn btn-outline btn-small" href="servidor.html">Ir a menu diario</a>
+                    </div>
+                    <p class="muted">Lista visible al inicio. Aqui gestionas productos disponibles para el dia.</p>
+
+                    <div id="productsTable" class="table-wrap"></div>
+                </section>
+
+                <aside class="panel admin-side">
+                    <h2>Vistas laterales</h2>
+                    <p class="muted">Abre rapido las secciones colapsadas.</p>
+                    <div id="adminQuickNav" class="admin-quick-nav">
+                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsProducts">Productos</button>
+                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsSettings">Configuracion</button>
+                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsPrinters">Impresoras</button>
+                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsTables">Mesas</button>
+                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsUsers">Usuarios</button>
+                    </div>
+
+                    <section class="admin-inline-panel">
+                        <details id="adminDetailsProducts" class="admin-collapsible">
+                            <summary>Ingreso de productos</summary>
+                            <div class="admin-collapsible-body">
+                                <form id="productForm" class="form-grid">
+                                    <input id="productId" type="hidden">
+                                    <label>
+                                        Nombre
+                                        <input id="productName" type="text" required>
+                                    </label>
+                                    <label>
+                                        Categoria
+                                        <select id="productCategory" required>
+                                            <option value="Platos">Platos</option>
+                                            <option value="Bebidas">Bebidas</option>
+                                            <option value="Postres">Postres</option>
+                                        </select>
+                                    </label>
+                                    <label>
+                                        Precio
+                                        <input id="productPrice" type="number" min="1" required>
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="productActive" type="checkbox" checked>
+                                        Producto activo
+                                    </label>
+                                    <div class="action-row">
+                                        <button class="btn btn-primary" type="submit">Guardar producto</button>
+                                        <button id="btnProductReset" class="btn btn-outline" type="button">Nuevo</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </details>
+                    </section>
+
+                    <section class="admin-inline-panel">
+                        <details id="adminDetailsSettings" class="admin-collapsible">
+                            <summary>Configuracion general</summary>
+                            <div class="admin-collapsible-body">
+                                <form id="settingsForm" class="form-grid">
+                                    <label>
+                                        Nombre del local
+                                        <input id="settingNombreLocal" type="text">
+                                    </label>
+                                    <label>
+                                        Simbolo de moneda
+                                        <input id="settingMoneda" type="text" maxlength="3">
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="settingImprimirPedidos" type="checkbox">
+                                        Imprimir pedidos de cocina automaticamente
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="settingPropinaHabilitada" type="checkbox" checked>
+                                        Habilitar propina sugerida 10% en precuenta y cobro
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="settingAlertaSonidoActivo" type="checkbox" checked>
+                                        Activar sonido de alerta de comandas nuevas (solo admin)
+                                    </label>
+                                    <label>
+                                        Tono de alerta de comanda
+                                        <select id="settingAlertaTono">
+                                            <option value="tono_1">Tono 1 - Bombero</option>
+                                            <option value="tono_2">Tono 2 - Sirena suave</option>
+                                            <option value="tono_3">Tono 3 - Doble pitido</option>
+                                            <option value="tono_4">Tono 4 - Ascendente</option>
+                                            <option value="tono_5">Tono 5 - Descendente</option>
+                                            <option value="tono_6">Tono 6 - Triple rapido</option>
+                                            <option value="tono_7">Tono 7 - Pulso grave</option>
+                                            <option value="tono_8">Tono 8 - Pulso agudo</option>
+                                            <option value="tono_9">Tono 9 - Alarma corta</option>
+                                            <option value="tono_10">Tono 10 - Campana corta</option>
+                                        </select>
+                                    </label>
+                                    <p class="muted">Al cambiar el tono se reproduce una vista previa.</p>
+                                    <button class="btn btn-primary" type="submit">Guardar configuracion</button>
+                                </form>
+                            </div>
+                        </details>
+                    </section>
+
+                    <section class="admin-inline-panel">
+                        <details id="adminDetailsPrinters" class="admin-collapsible">
+                            <summary>Impresoras</summary>
+                            <div class="admin-collapsible-body">
+                                <p id="printersStatus" class="muted">Cargando impresoras...</p>
+                                <form id="printersForm" class="form-grid">
+                                    <label>
+                                        Modo de impresion
+                                        <select id="printerMode">
+                                            <option value="una">Una impresora para todo</option>
+                                            <option value="dos">Dos impresoras (cocina y caja)</option>
+                                        </select>
+                                    </label>
+                                    <label>
+                                        Impresora cocina (pedidos)
+                                        <select id="printerKitchen"></select>
+                                    </label>
+                                    <label>
+                                        Impresora caja (precuenta/ticket)
+                                        <select id="printerCashier"></select>
+                                    </label>
+                                    <label>
+                                        Papel ticket (mm)
+                                        <input id="ticketPaperMm" type="number" min="48" max="120" step="1" placeholder="58">
+                                    </label>
+                                    <label>
+                                        Ancho ticket (caracteres)
+                                        <input id="ticketChars" type="number" min="20" max="80" step="1" placeholder="32">
+                                    </label>
+                                    <label>
+                                        Tamano fuente (pt)
+                                        <input id="ticketFontPt" type="number" min="6" max="16" step="0.5" placeholder="9">
+                                    </label>
+                                    <p class="muted">Para impresora 58mm usa como base: 58mm, 32 caracteres, fuente 9pt.</p>
+                                    <button class="btn btn-primary" type="submit">Guardar impresoras</button>
+                                </form>
+                            </div>
+                        </details>
+                    </section>
+
+                    <section class="admin-inline-panel">
+                        <details id="adminDetailsTables" class="admin-collapsible">
+                            <summary>Cantidad de mesas</summary>
+                            <div class="admin-collapsible-body">
+                                <form id="tablesForm" class="form-grid">
+                                    <label>
+                                        Cantidad activa de mesas
+                                        <input id="tablesCount" type="number" min="1" max="200">
+                                    </label>
+                                    <button class="btn btn-primary" type="submit">Aplicar cantidad</button>
+                                </form>
+                                <p class="muted">Si reduces mesas y hay comandas abiertas en mesas altas, no se permitira.</p>
+                            </div>
+                        </details>
+                    </section>
+
+                    <section class="admin-inline-panel">
+                        <details id="adminDetailsUsers" class="admin-collapsible">
+                            <summary>Usuarios</summary>
+                            <div class="admin-collapsible-body">
+                                <form id="userForm" class="form-grid">
+                                    <input id="userId" type="hidden">
+                                    <label>
+                                        Nombre
+                                        <input id="userName" type="text" required>
+                                    </label>
+                                    <label>
+                                        Usuario
+                                        <input id="userUsername" type="text" required>
+                                    </label>
+                                    <label>
+                                        Rol
+                                        <select id="userRole">
+                                            <option value="admin">admin</option>
+                                            <option value="mesero">mesero</option>
+                                            <option value="caja">cajero</option>
+                                            <option value="cocina">cocina</option>
+                                        </select>
+                                    </label>
+                                    <label>
+                                        Password
+                                        <input id="userPassword" type="password" placeholder="Solo para crear o cambiar">
+                                    </label>
+                                    <label class="checkbox-row">
+                                        <input id="userActive" type="checkbox" checked>
+                                        Usuario activo
+                                    </label>
+                                    <div class="action-row">
+                                        <button class="btn btn-primary" type="submit">Guardar usuario</button>
+                                        <button id="btnUserReset" class="btn btn-outline" type="button">Nuevo</button>
+                                    </div>
+                                </form>
+
+                                <div id="usersTable" class="table-wrap"></div>
+                            </div>
+                        </details>
+                    </section>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <aside id="toast" class="toast" aria-live="polite"></aside>
+
+    <script src="assets/js/api.js" defer></script>
+    <script src="assets/js/admin.js" defer></script>
+</body>
+</html>

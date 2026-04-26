@@ -1,0 +1,3 @@
+storage/comanda.sqlite
+print_jobs/*.txt
+node_modules/

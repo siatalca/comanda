@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Iniciar Sesion - Donde Abel</title>
+    <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body class="login-page">
+    <main class="admin-layout">
+        <section class="panel admin-login">
+            <p class="eyebrow">Acceso al sistema</p>
+            <h1>Iniciar sesion</h1>
+            <p class="muted">Mesero entra a comanda movil. Caja/Admin entran al panel servidor.</p>
+            <p id="loginError" class="text-error hidden" style="margin-top: 0.8rem;"></p>
+
+            <form id="loginForm" class="form-grid" style="margin-top: 0.9rem;">
+                <label>
+                    Usuario
+                    <input id="loginUsuario" type="text" name="usuario" autocomplete="username" required>
+                </label>
+                <label>
+                    Password
+                    <input id="loginPassword" type="password" name="password" autocomplete="current-password" required>
+                </label>
+                <button id="btnLogin" class="btn btn-primary" type="submit">Entrar</button>
+            </form>
+
+            <p class="muted" style="margin-top: 0.9rem;">Admin inicial: <strong>admin / 123456</strong></p>
+        </section>
+    </main>
+
+    <aside id="toast" class="toast" aria-live="polite"></aside>
+
+    <script src="assets/js/api.js" defer></script>
+    <script src="assets/js/login.js" defer></script>
+</body>
+</html>

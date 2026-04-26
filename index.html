@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Comanda Local</title>
+</head>
+<body>
+<p>Redirigiendo...</p>
+<script>
+(function () {
+    function toHtmlPath(path) {
+        const value = String(path || "").trim();
+        if (!value) {
+            return "login.html";
+        }
+        if (value.endsWith(".php")) {
+            return value.slice(0, -4) + ".html";
+        }
+        return value;
+    }
+
+    fetch("api.php?action=session", { credentials: "same-origin" })
+        .then((response) => response.json())
+        .then((payload) => {
+            if (payload && payload.ok && payload.logged && payload.redirect_to) {
+                window.location.href = toHtmlPath(payload.redirect_to);
+                return;
+            }
+            window.location.href = "login.html";
+        })
+        .catch(() => {
+            window.location.href = "login.html";
+        });
+})();
+</script>
+</body>
+</html>
