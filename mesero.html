@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vista Mesero - Comanda Local</title>
-    <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260523-2">
 </head>
 <body class="waiter-page">
     <header class="app-header">
@@ -20,15 +20,25 @@
     </header>
 
     <main class="waiter-layout">
-        <section class="panel panel-control">
-            <h2>Seleccion de mesa</h2>
-            <div class="control-row">
-                <label for="mesaSelect">Mesa</label>
-                <select id="mesaSelect"></select>
+        <section id="mesaSelectorPanel" class="panel panel-control">
+            <div class="panel-title-row">
+                <h2>Seleccion de mesa</h2>
                 <button id="btnRefrescarMesa" class="btn btn-outline" type="button">Actualizar</button>
             </div>
+            <p class="muted">Toca una mesa para continuar.</p>
+            <div class="waiter-mesa-counters" aria-live="polite">
+                <button id="mesasLibresCount" class="btn btn-outline btn-small waiter-counter" type="button" disabled>Libres: 0</button>
+                <button id="mesasOcupadasCount" class="btn btn-outline btn-small waiter-counter" type="button" disabled>Ocupadas: 0</button>
+            </div>
+            <div id="meseroMesasGrid" class="mesas-grid waiter-mesas-grid"></div>
+        </section>
+
+        <section id="mesaOrderHeader" class="panel panel-control hidden">
+            <div class="panel-title-row">
+                <h2 id="selectedMesaTitle">Mesa -</h2>
+                <button id="btnBackToMesas" class="btn btn-outline" type="button">Volver a mesas</button>
+            </div>
             <p id="mesaEstado" class="muted">Estado: -</p>
-            <p class="muted">Servidor: <span id="serverTag">-</span></p>
         </section>
 
         <section class="panel panel-sales-history">
@@ -37,7 +47,7 @@
             <p id="tipsSummaryDate" class="muted">Fecha: -</p>
         </section>
 
-        <section class="panel panel-menu">
+        <section id="panelMenu" class="panel panel-menu hidden">
             <div class="panel-title-row">
                 <h2>Menu</h2>
                 <p class="muted">Selecciona cantidades y envia pedido</p>
@@ -45,7 +55,7 @@
             <div id="menuMount" class="menu-groups"></div>
         </section>
 
-        <section class="panel panel-cart">
+        <section id="panelCart" class="panel panel-cart hidden">
             <div class="panel-title-row">
                 <h2>Pedido en preparacion</h2>
                 <p class="muted">Solo se envia lo que esta aqui</p>
@@ -57,7 +67,7 @@
             </div>
         </section>
 
-        <section class="panel panel-comanda">
+        <section id="panelComanda" class="panel panel-comanda hidden">
             <div class="panel-title-row">
                 <h2>Comanda actual de la mesa</h2>
                 <p class="muted">Se actualiza automaticamente</p>
@@ -73,9 +83,22 @@
         </section>
     </main>
 
+    <div id="kitchenReadyPopup" class="kitchen-ready-popup hidden" role="alertdialog" aria-live="assertive" aria-modal="false">
+        <div class="kitchen-ready-card">
+            <h3>Pedido listo</h3>
+            <p id="kitchenReadyText">La cocina marco un pedido como listo.</p>
+            <div id="kitchenReadyItems" class="kitchen-ready-items">
+                <p class="kitchen-ready-empty">Sin detalle de productos.</p>
+            </div>
+            <div class="action-row">
+                <button id="btnKitchenReadyClose" class="btn btn-primary" type="button">Entendido</button>
+            </div>
+        </div>
+    </div>
+
     <aside id="toast" class="toast" aria-live="polite"></aside>
 
-    <script src="assets/js/api.js" defer></script>
-    <script src="assets/js/mesero.js" defer></script>
+    <script src="assets/js/api.js?v=20260523-1" defer></script>
+    <script src="assets/js/mesero.js?v=20260523-5" defer></script>
 </body>
 </html>

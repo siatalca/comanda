@@ -41,6 +41,16 @@
         refs.adminDetailsPrinters = document.getElementById("adminDetailsPrinters");
         refs.adminDetailsTables = document.getElementById("adminDetailsTables");
         refs.adminDetailsUsers = document.getElementById("adminDetailsUsers");
+        refs.adminPanels = [
+            refs.adminDetailsProducts,
+            refs.adminDetailsSettings,
+            refs.adminDetailsPrinters,
+            refs.adminDetailsTables,
+            refs.adminDetailsUsers
+        ].filter(Boolean);
+        refs.adminQuickButtons = refs.adminQuickNav
+            ? Array.from(refs.adminQuickNav.querySelectorAll("button[data-open-target]"))
+            : [];
 
         refs.settingsForm = document.getElementById("settingsForm");
         refs.settingNombreLocal = document.getElementById("settingNombreLocal");
@@ -120,6 +130,18 @@
                 openAdminPanel(String(button.dataset.openTarget || ""));
             });
         }
+        refs.adminPanels.forEach((panel) => {
+            panel.addEventListener("toggle", () => {
+                if (panel.open) {
+                    refs.adminPanels.forEach((otherPanel) => {
+                        if (otherPanel !== panel) {
+                            otherPanel.open = false;
+                        }
+                    });
+                }
+                syncAdminQuickNav();
+            });
+        });
 
         refs.settingsForm.addEventListener("submit", saveSettings);
         refs.printersForm.addEventListener("submit", savePrinters);
@@ -163,13 +185,7 @@
             return;
         }
 
-        const panels = [
-            refs.adminDetailsProducts,
-            refs.adminDetailsSettings,
-            refs.adminDetailsPrinters,
-            refs.adminDetailsTables,
-            refs.adminDetailsUsers
-        ].filter(Boolean);
+        const panels = Array.isArray(refs.adminPanels) ? refs.adminPanels : [];
 
         panels.forEach((panel) => {
             panel.open = panel.id === panelId;
@@ -180,7 +196,29 @@
             return;
         }
         target.open = true;
+        syncAdminQuickNav(panelId);
         target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function syncAdminQuickNav(activePanelId) {
+        const activeId = String(
+            activePanelId
+                || (Array.isArray(refs.adminPanels)
+                    ? (refs.adminPanels.find((panel) => panel.open) || {}).id
+                    : "")
+                || ""
+        );
+
+        (refs.adminQuickButtons || []).forEach((button) => {
+            const targetId = String(button.dataset.openTarget || "");
+            const isActive = targetId !== "" && targetId === activeId;
+            button.classList.toggle("active", isActive);
+            if (isActive) {
+                button.setAttribute("aria-current", "true");
+            } else {
+                button.removeAttribute("aria-current");
+            }
+        });
     }
 
     async function checkSession() {
@@ -242,6 +280,7 @@
         hydratePrinters();
         renderProducts();
         renderUsers();
+        syncAdminQuickNav();
     }
 
     function hydrateSettings() {
@@ -363,12 +402,12 @@
                     ${products
                         .map((item) => `
                             <tr>
-                                <td>${item.id}</td>
-                                <td>${escapeHtml(item.nombre)}</td>
-                                <td>${escapeHtml(item.categoria)}</td>
-                                <td>${api.money(item.precio)}</td>
-                                <td>${item.activo === 1 ? "Si" : "No"}</td>
-                                <td class="table-actions">
+                                <td data-label="ID">${item.id}</td>
+                                <td data-label="Nombre">${escapeHtml(item.nombre)}</td>
+                                <td data-label="Categoria">${escapeHtml(item.categoria)}</td>
+                                <td data-label="Precio">${api.money(item.precio)}</td>
+                                <td data-label="Activo">${item.activo === 1 ? "Si" : "No"}</td>
+                                <td data-label="Acciones" class="table-actions">
                                     <button class="btn btn-outline btn-small" data-product-edit="${item.id}">Editar</button>
                                     <button class="btn btn-outline btn-small" data-product-toggle="${item.id}" data-product-state="${item.activo === 1 ? 0 : 1}">
                                         ${item.activo === 1 ? "Desactivar" : "Activar"}
@@ -416,6 +455,9 @@
             refs.productCategory.value = normalizeProductCategory(product.categoria);
             refs.productPrice.value = String(product.precio);
             refs.productActive.checked = Number(product.activo) === 1;
+            openAdminPanel("adminDetailsProducts");
+            refs.productName.focus({ preventScroll: true });
+            refs.productName.scrollIntoView({ behavior: "smooth", block: "center" });
             return;
         }
 
@@ -481,12 +523,12 @@
                     ${users
                         .map((item) => `
                             <tr>
-                                <td>${item.id}</td>
-                                <td>${escapeHtml(item.nombre)}</td>
-                                <td>${escapeHtml(item.usuario)}</td>
-                                <td>${escapeHtml(item.rol)}</td>
-                                <td>${item.activo === 1 ? "Si" : "No"}</td>
-                                <td class="table-actions">
+                                <td data-label="ID">${item.id}</td>
+                                <td data-label="Nombre">${escapeHtml(item.nombre)}</td>
+                                <td data-label="Usuario">${escapeHtml(item.usuario)}</td>
+                                <td data-label="Rol">${escapeHtml(item.rol)}</td>
+                                <td data-label="Activo">${item.activo === 1 ? "Si" : "No"}</td>
+                                <td data-label="Acciones" class="table-actions">
                                     <button class="btn btn-outline btn-small" data-user-edit="${item.id}">Editar</button>
                                     <button class="btn btn-outline btn-small" data-user-toggle="${item.id}" data-user-state="${item.activo === 1 ? 0 : 1}">
                                         ${item.activo === 1 ? "Desactivar" : "Activar"}
@@ -525,6 +567,9 @@
             refs.userRole.value = user.rol;
             refs.userPassword.value = "";
             refs.userActive.checked = Number(user.activo) === 1;
+            openAdminPanel("adminDetailsUsers");
+            refs.userName.focus({ preventScroll: true });
+            refs.userName.scrollIntoView({ behavior: "smooth", block: "center" });
             return;
         }
 

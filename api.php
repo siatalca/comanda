@@ -99,7 +99,7 @@ function handle_get(PDO $pdo, string $action): void
             ]);
             break;
         case 'caja_estado_actual':
-            require_cashier_roles($pdo);
+            require_sales_history_roles($pdo);
             json_response([
                 'ok' => true,
                 'data' => get_cash_status_payload($pdo),
@@ -126,6 +126,13 @@ function handle_get(PDO $pdo, string $action): void
             json_response([
                 'ok' => true,
                 'data' => get_comanda_snapshot($pdo, $mesaNumero),
+            ]);
+            break;
+        case 'cocina_pedidos':
+            require_kitchen_roles($pdo);
+            json_response([
+                'ok' => true,
+                'data' => get_kitchen_queue_payload($pdo),
             ]);
             break;
         case 'config_cobro':
@@ -218,6 +225,16 @@ function handle_post(PDO $pdo, string $action): void
             require_operation_roles($pdo);
             required_fields($body, ['mesa_numero']);
             process_print_bill($pdo, $body);
+            break;
+        case 'cocina_item_estado':
+            require_kitchen_roles($pdo);
+            required_fields($body, ['item_id', 'entregado']);
+            process_set_kitchen_item_status($pdo, $body);
+            break;
+        case 'cocina_comanda_lista':
+            require_kitchen_roles($pdo);
+            required_fields($body, ['comanda_id']);
+            process_complete_kitchen_order($pdo, $body);
             break;
         default:
             json_response([
@@ -380,6 +397,27 @@ function require_sales_history_roles(PDO $pdo): array
         json_response([
             'ok' => false,
             'error' => 'Tu rol no tiene permisos para ver el desglose de ventas.',
+        ], 403);
+    }
+
+    return $user;
+}
+
+function require_kitchen_roles(PDO $pdo): array
+{
+    $user = auth_current_user($pdo);
+    if (!$user) {
+        json_response([
+            'ok' => false,
+            'error' => 'Debes iniciar sesion.',
+        ], 401);
+    }
+
+    $allowed = ['cocina', 'admin'];
+    if (!in_array((string) $user['rol'], $allowed, true)) {
+        json_response([
+            'ok' => false,
+            'error' => 'Tu rol no tiene permisos para operar cocina.',
         ], 403);
     }
 
@@ -617,6 +655,29 @@ function process_close_cash_session(PDO $pdo, array $body): void
         ], 403);
     }
 
+    $openAccounts = get_open_accounts_detail($pdo);
+    if (count($openAccounts) > 0) {
+        $mesasPendientes = [];
+        foreach ($openAccounts as $account) {
+            $mesaNumero = clean_int($account['mesa_numero'] ?? 0);
+            if ($mesaNumero > 0) {
+                $mesasPendientes[] = $mesaNumero;
+            }
+        }
+        $mesasPendientes = array_values(array_unique($mesasPendientes));
+        sort($mesasPendientes);
+        $mesasTexto = count($mesasPendientes) > 0 ? implode(', ', $mesasPendientes) : '';
+        $message = count($mesasPendientes) > 0
+            ? "No puedes cerrar caja: hay mesas pendientes ({$mesasTexto}). Debes cobrarlas y cerrarlas antes."
+            : 'No puedes cerrar caja: hay mesas pendientes. Debes cobrarlas y cerrarlas antes.';
+
+        json_response([
+            'ok' => false,
+            'error' => $message,
+            'mesas_pendientes' => $mesasPendientes,
+        ], 422);
+    }
+
     $montoFinal = clean_float($body['monto_final_declarado'] ?? -1);
     if ($montoFinal < 0) {
         json_response([
@@ -693,15 +754,20 @@ function default_cash_summary(float $montoInicial): array
         'otros_total' => 0.0,
         'otros_cantidad' => 0,
         'efectivo_esperado' => $montoInicial,
+        'propinas_total' => 0.0,
+        'propinas_cantidad' => 0,
+        'propinas_por_mesero' => [],
     ];
 }
 
 function get_cash_session_summary(PDO $pdo, int $sessionId): array
 {
+    ensure_comanda_waiter_schema($pdo);
     $session = get_cash_session_by_id($pdo, $sessionId);
     $montoInicial = $session ? clean_float($session['monto_inicial'] ?? 0) : 0.0;
     $summary = default_cash_summary($montoInicial);
     $salesKeys = [];
+    $comandaIds = [];
     $fallbackSaleIndex = 0;
 
     $stmt = $pdo->prepare(
@@ -720,6 +786,7 @@ function get_cash_session_summary(PDO $pdo, int $sessionId): array
         $comandaId = clean_int($row['comanda_id'] ?? 0);
         if ($comandaId > 0) {
             $salesKeys['c_' . $comandaId] = true;
+            $comandaIds[$comandaId] = true;
         } else {
             $fallbackSaleIndex += 1;
             $salesKeys['p_' . $fallbackSaleIndex] = true;
@@ -748,8 +815,73 @@ function get_cash_session_summary(PDO $pdo, int $sessionId): array
         $summary['otros_cantidad'] += 1;
     }
 
+    if (count($comandaIds) > 0) {
+        $ids = array_keys($comandaIds);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $tipsStmt = $pdo->prepare(
+            "SELECT c.id, c.propina_monto, c.mesero_id,
+                    u.nombre AS mesero_nombre, u.usuario AS mesero_usuario
+             FROM comandas c
+             LEFT JOIN usuarios u ON u.id = c.mesero_id
+             WHERE c.id IN ({$placeholders})"
+        );
+        $tipsStmt->execute($ids);
+        $tipsByWaiter = [];
+
+        foreach ($tipsStmt->fetchAll() as $row) {
+            $tipAmount = clean_float($row['propina_monto'] ?? 0);
+            $summary['propinas_total'] += $tipAmount;
+            if ($tipAmount > 0) {
+                $summary['propinas_cantidad'] += 1;
+            }
+
+            $meseroId = clean_int($row['mesero_id'] ?? 0);
+            $meseroNombre = trim((string) ($row['mesero_nombre'] ?? ''));
+            $meseroUsuario = trim((string) ($row['mesero_usuario'] ?? ''));
+            $meseroKey = $meseroId > 0 ? 'id:' . $meseroId : 'sin_mesero';
+            if ($meseroNombre === '') {
+                $meseroNombre = $meseroId > 0 ? 'Mesero #' . $meseroId : 'Sin mesero asignado';
+            }
+
+            if (!isset($tipsByWaiter[$meseroKey])) {
+                $tipsByWaiter[$meseroKey] = [
+                    'mesero_id' => $meseroId,
+                    'mesero_nombre' => $meseroNombre,
+                    'mesero_usuario' => $meseroUsuario,
+                    'propina_total' => 0.0,
+                    'ventas_cantidad' => 0,
+                    'ventas_con_propina' => 0,
+                ];
+            }
+            $tipsByWaiter[$meseroKey]['propina_total'] += $tipAmount;
+            $tipsByWaiter[$meseroKey]['ventas_cantidad'] += 1;
+            if ($tipAmount > 0) {
+                $tipsByWaiter[$meseroKey]['ventas_con_propina'] += 1;
+            }
+        }
+
+        $tipsByWaiterList = array_values($tipsByWaiter);
+        usort($tipsByWaiterList, static function (array $a, array $b): int {
+            $byTip = clean_float($b['propina_total'] ?? 0) <=> clean_float($a['propina_total'] ?? 0);
+            if ($byTip !== 0) {
+                return $byTip;
+            }
+            return strcmp(
+                (string) ($a['mesero_nombre'] ?? ''),
+                (string) ($b['mesero_nombre'] ?? '')
+            );
+        });
+        foreach ($tipsByWaiterList as $index => $row) {
+            $tipsByWaiterList[$index]['propina_total'] = clean_float($row['propina_total'] ?? 0);
+            $tipsByWaiterList[$index]['ventas_cantidad'] = clean_int($row['ventas_cantidad'] ?? 0);
+            $tipsByWaiterList[$index]['ventas_con_propina'] = clean_int($row['ventas_con_propina'] ?? 0);
+        }
+        $summary['propinas_por_mesero'] = $tipsByWaiterList;
+    }
+
     $summary['ventas_cantidad'] = count($salesKeys);
     $summary['efectivo_esperado'] = clean_float($summary['monto_inicial']) + clean_float($summary['efectivo_total']);
+    $summary['propinas_total'] = clean_float($summary['propinas_total']);
     return $summary;
 }
 
@@ -953,11 +1085,25 @@ function ensure_comanda_waiter_schema(PDO $pdo): void
 
     if (db_is_mysql($pdo)) {
         ensure_table_column($pdo, 'comandas', 'mesero_id', 'INT UNSIGNED DEFAULT NULL');
+        ensure_table_column($pdo, 'comandas', 'cocina_lista', 'TINYINT(1) NOT NULL DEFAULT 0');
+        ensure_table_column($pdo, 'comandas', 'cocina_lista_en', 'DATETIME DEFAULT NULL');
+        ensure_table_column($pdo, 'comandas', 'cocina_lista_por', 'INT UNSIGNED DEFAULT NULL');
+        ensure_table_column($pdo, 'comanda_items', 'categoria', 'VARCHAR(50) DEFAULT NULL');
+        ensure_table_column($pdo, 'comanda_items', 'cocina_entregado', 'TINYINT(1) NOT NULL DEFAULT 0');
+        ensure_table_column($pdo, 'comanda_items', 'cocina_entregado_en', 'DATETIME DEFAULT NULL');
+        ensure_table_column($pdo, 'comanda_items', 'cocina_entregado_por', 'INT UNSIGNED DEFAULT NULL');
         $checked = true;
         return;
     }
 
     ensure_table_column($pdo, 'comandas', 'mesero_id', 'INTEGER');
+    ensure_table_column($pdo, 'comandas', 'cocina_lista', 'INTEGER NOT NULL DEFAULT 0');
+    ensure_table_column($pdo, 'comandas', 'cocina_lista_en', 'TEXT');
+    ensure_table_column($pdo, 'comandas', 'cocina_lista_por', 'INTEGER');
+    ensure_table_column($pdo, 'comanda_items', 'categoria', 'TEXT');
+    ensure_table_column($pdo, 'comanda_items', 'cocina_entregado', 'INTEGER NOT NULL DEFAULT 0');
+    ensure_table_column($pdo, 'comanda_items', 'cocina_entregado_en', 'TEXT');
+    ensure_table_column($pdo, 'comanda_items', 'cocina_entregado_por', 'INTEGER');
     $checked = true;
 }
 
@@ -1946,27 +2092,42 @@ function process_send_order(PDO $pdo, array $body): void
 
         $insertItemStmt = $pdo->prepare(
             'INSERT INTO comanda_items
-            (comanda_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, notas, creado_en)
-            VALUES (:comanda_id, :producto_id, :descripcion, :cantidad, :precio_unitario, :subtotal, :notas, :creado_en)'
+            (comanda_id, producto_id, descripcion, categoria, cantidad, precio_unitario, subtotal, notas, creado_en,
+             cocina_entregado, cocina_entregado_en, cocina_entregado_por)
+            VALUES (:comanda_id, :producto_id, :descripcion, :categoria, :cantidad, :precio_unitario, :subtotal, :notas, :creado_en,
+                    :cocina_entregado, :cocina_entregado_en, :cocina_entregado_por)'
         );
 
         foreach ($items as $item) {
+            $itemCategory = trim((string) ($item['categoria'] ?? ''));
+            $isBeverage = is_beverage_category($itemCategory);
+            $autoDelivered = $isBeverage ? 1 : 0;
+            $autoDeliveredAt = $isBeverage ? now_ts() : null;
+            $autoDeliveredBy = $isBeverage && $currentUserId > 0 ? $currentUserId : null;
             $insertItemStmt->execute([
                 ':comanda_id' => $comandaId,
                 ':producto_id' => $item['producto_id'],
                 ':descripcion' => $item['descripcion'],
+                ':categoria' => $itemCategory,
                 ':cantidad' => $item['cantidad'],
                 ':precio_unitario' => $item['precio_unitario'],
                 ':subtotal' => $item['subtotal'],
                 ':notas' => $item['notas'],
                 ':creado_en' => now_ts(),
+                ':cocina_entregado' => $autoDelivered,
+                ':cocina_entregado_en' => $autoDeliveredAt,
+                ':cocina_entregado_por' => $autoDeliveredBy,
             ]);
         }
 
         $totalComanda = recalc_total($pdo, $comandaId);
 
         $updateComanda = $pdo->prepare(
-            'UPDATE comandas SET total = :total, actualizada_en = :actualizada WHERE id = :id'
+            'UPDATE comandas
+             SET total = :total,
+                 actualizada_en = :actualizada,
+                 cocina_lista = 0
+             WHERE id = :id'
         );
         $updateComanda->execute([
             ':total' => $totalComanda,
@@ -2228,6 +2389,164 @@ function process_print_bill(PDO $pdo, array $body): void
     ]);
 }
 
+function process_set_kitchen_item_status(PDO $pdo, array $body): void
+{
+    $user = require_kitchen_roles($pdo);
+    ensure_comanda_waiter_schema($pdo);
+
+    $itemId = clean_int($body['item_id'] ?? 0);
+    if ($itemId <= 0) {
+        json_response([
+            'ok' => false,
+            'error' => 'Item de cocina invalido.',
+        ], 422);
+    }
+
+    $raw = $body['entregado'] ?? 0;
+    $delivered = $raw === true || $raw === 1 || $raw === '1';
+    $deliveredValue = $delivered ? 1 : 0;
+
+    $find = $pdo->prepare(
+        'SELECT ci.id, ci.comanda_id
+         FROM comanda_items ci
+         INNER JOIN comandas c ON c.id = ci.comanda_id
+         WHERE ci.id = :item_id
+           AND c.estado = :estado
+         LIMIT 1'
+    );
+    $find->execute([
+        ':item_id' => $itemId,
+        ':estado' => 'abierta',
+    ]);
+    $row = $find->fetch();
+    if (!$row) {
+        json_response([
+            'ok' => false,
+            'error' => 'El item no existe o su mesa ya esta cerrada.',
+        ], 404);
+    }
+
+    $now = now_ts();
+    $updateItem = $pdo->prepare(
+        'UPDATE comanda_items
+         SET cocina_entregado = :entregado,
+             cocina_entregado_en = :entregado_en,
+             cocina_entregado_por = :entregado_por
+         WHERE id = :id'
+    );
+    $updateItem->execute([
+        ':entregado' => $deliveredValue,
+        ':entregado_en' => $delivered ? $now : null,
+        ':entregado_por' => $delivered ? clean_int($user['id'] ?? 0) : null,
+        ':id' => $itemId,
+    ]);
+
+    $updateComanda = $pdo->prepare(
+        'UPDATE comandas
+         SET cocina_lista = 0,
+             actualizada_en = :actualizada_en
+         WHERE id = :id'
+    );
+    $updateComanda->execute([
+        ':actualizada_en' => $now,
+        ':id' => clean_int($row['comanda_id'] ?? 0),
+    ]);
+
+    json_response([
+        'ok' => true,
+        'mensaje' => $delivered ? 'Item marcado como listo.' : 'Item marcado como pendiente.',
+        'data' => get_kitchen_queue_payload($pdo),
+    ]);
+}
+
+function process_complete_kitchen_order(PDO $pdo, array $body): void
+{
+    $user = require_kitchen_roles($pdo);
+    ensure_comanda_waiter_schema($pdo);
+
+    $comandaId = clean_int($body['comanda_id'] ?? 0);
+    if ($comandaId <= 0) {
+        json_response([
+            'ok' => false,
+            'error' => 'Comanda invalida.',
+        ], 422);
+    }
+
+    $find = $pdo->prepare(
+        'SELECT
+            ci.id,
+            COALESCE(NULLIF(ci.categoria, \'\'), p.categoria, \'\') AS categoria
+         FROM comanda_items ci
+         LEFT JOIN productos p ON p.id = ci.producto_id
+         INNER JOIN comandas c ON c.id = ci.comanda_id
+         WHERE ci.comanda_id = :comanda_id
+           AND c.estado = :estado
+         ORDER BY ci.id ASC'
+    );
+    $find->execute([
+        ':comanda_id' => $comandaId,
+        ':estado' => 'abierta',
+    ]);
+    $rows = $find->fetchAll();
+
+    if (count($rows) === 0) {
+        json_response([
+            'ok' => false,
+            'error' => 'La comanda no existe o no tiene items.',
+        ], 404);
+    }
+
+    $kitchenItemIds = [];
+    foreach ($rows as $row) {
+        if (!is_beverage_category((string) ($row['categoria'] ?? ''))) {
+            $kitchenItemIds[] = clean_int($row['id'] ?? 0);
+        }
+    }
+
+    if (count($kitchenItemIds) === 0) {
+        json_response([
+            'ok' => false,
+            'error' => 'La comanda no tiene items de cocina para completar.',
+        ], 422);
+    }
+
+    $placeholders = implode(',', array_fill(0, count($kitchenItemIds), '?'));
+    $now = now_ts();
+    $updateItems = $pdo->prepare(
+        "UPDATE comanda_items
+         SET cocina_entregado = 1,
+             cocina_entregado_en = ?,
+             cocina_entregado_por = ?
+         WHERE id IN ({$placeholders})"
+    );
+    $updateItems->execute(array_merge([
+        $now,
+        clean_int($user['id'] ?? 0),
+    ], $kitchenItemIds));
+
+    $updateComanda = $pdo->prepare(
+        'UPDATE comandas
+         SET cocina_lista = :cocina_lista,
+             cocina_lista_en = :cocina_lista_en,
+             cocina_lista_por = :cocina_lista_por,
+             actualizada_en = :actualizada_en
+         WHERE id = :id'
+    );
+    $updateComanda->execute([
+        ':cocina_lista' => 1,
+        ':cocina_lista_en' => $now,
+        ':cocina_lista_por' => clean_int($user['id'] ?? 0),
+        ':actualizada_en' => $now,
+        ':id' => $comandaId,
+    ]);
+
+    json_response([
+        'ok' => true,
+        'mensaje' => 'Pedido de cocina marcado como listo.',
+        'data' => get_kitchen_queue_payload($pdo),
+    ]);
+}
+
 function get_menu(PDO $pdo, array $user): array
 {
     $role = strtolower(trim((string) ($user['rol'] ?? '')));
@@ -2413,6 +2732,7 @@ function get_daily_menu_enabled_map(PDO $pdo, string $fecha): array
 
 function get_mesas_state(PDO $pdo): array
 {
+    ensure_comanda_waiter_schema($pdo);
     $tableLimit = configured_table_count($pdo);
     $sql = <<<SQL
 SELECT
@@ -2421,9 +2741,13 @@ SELECT
     m.estado,
     m.actualizada_en,
     c.id AS comanda_id,
+    c.mesero_id AS comanda_mesero_id,
     c.total AS comanda_total,
+    c.cocina_lista AS comanda_cocina_lista,
+    c.cocina_lista_en AS comanda_cocina_lista_en,
     c.actualizada_en AS comanda_actualizada_en,
-    COALESCE(ci.total_items, 0) AS total_items
+    COALESCE(ci.total_items, 0) AS total_items,
+    COALESCE(ci.total_items_listos, 0) AS total_items_listos
 FROM mesas m
 LEFT JOIN comandas c ON c.id = (
     SELECT c2.id
@@ -2433,7 +2757,10 @@ LEFT JOIN comandas c ON c.id = (
     LIMIT 1
 )
 LEFT JOIN (
-    SELECT comanda_id, SUM(cantidad) AS total_items
+    SELECT
+        comanda_id,
+        SUM(cantidad) AS total_items,
+        SUM(CASE WHEN COALESCE(cocina_entregado, 0) = 1 THEN cantidad ELSE 0 END) AS total_items_listos
     FROM comanda_items
     GROUP BY comanda_id
 ) ci ON ci.comanda_id = c.id
@@ -2452,9 +2779,13 @@ SQL;
             'estado' => (string) $row['estado'],
             'actualizada_en' => (string) $row['actualizada_en'],
             'comanda_id' => $row['comanda_id'] !== null ? (int) $row['comanda_id'] : null,
+            'comanda_mesero_id' => $row['comanda_mesero_id'] !== null ? (int) $row['comanda_mesero_id'] : null,
             'comanda_total' => $row['comanda_total'] !== null ? (float) $row['comanda_total'] : 0.0,
+            'comanda_cocina_lista' => $row['comanda_cocina_lista'] !== null ? clean_int($row['comanda_cocina_lista']) : 0,
+            'comanda_cocina_lista_en' => (string) ($row['comanda_cocina_lista_en'] ?? ''),
             'comanda_actualizada_en' => $row['comanda_actualizada_en'],
             'total_items' => (int) $row['total_items'],
+            'comanda_items_listos' => clean_int($row['total_items_listos'] ?? 0),
         ];
     }
 
@@ -2522,6 +2853,116 @@ function get_open_accounts_detail(PDO $pdo): array
     });
 
     return $list;
+}
+
+function get_kitchen_queue_payload(PDO $pdo): array
+{
+    ensure_comanda_waiter_schema($pdo);
+    $stmt = $pdo->prepare(
+        'SELECT
+            c.id AS comanda_id,
+            c.estado AS comanda_estado,
+            c.creada_en AS comanda_creada_en,
+            COALESCE(c.cocina_lista, 0) AS cocina_lista,
+            m.numero AS mesa_numero,
+            ci.id AS item_id,
+            ci.descripcion,
+            ci.categoria,
+            ci.cantidad,
+            ci.notas,
+            ci.creado_en AS item_creado_en,
+            COALESCE(ci.cocina_entregado, 0) AS cocina_entregado,
+            COALESCE(NULLIF(ci.categoria, \'\'), p.categoria, \'\') AS categoria_resuelta
+         FROM comandas c
+         INNER JOIN mesas m ON m.id = c.mesa_id
+         INNER JOIN comanda_items ci ON ci.comanda_id = c.id
+         LEFT JOIN productos p ON p.id = ci.producto_id
+         WHERE c.estado = :estado
+           AND COALESCE(c.cocina_lista, 0) = 0
+           AND (
+               c.cocina_lista_en IS NULL
+               OR ci.creado_en > c.cocina_lista_en
+               OR COALESCE(ci.cocina_entregado, 0) = 0
+           )
+         ORDER BY ci.creado_en ASC, ci.id ASC'
+    );
+    $stmt->execute([
+        ':estado' => 'abierta',
+    ]);
+
+    $byComanda = [];
+
+    foreach ($stmt->fetchAll() as $row) {
+        $categoria = (string) ($row['categoria_resuelta'] ?? $row['categoria'] ?? '');
+        if (is_beverage_category($categoria)) {
+            continue;
+        }
+
+        $comandaId = clean_int($row['comanda_id'] ?? 0);
+        if ($comandaId <= 0) {
+            continue;
+        }
+
+        if (!isset($byComanda[$comandaId])) {
+            $byComanda[$comandaId] = [
+                'comanda_id' => $comandaId,
+                'mesa_numero' => clean_int($row['mesa_numero'] ?? 0),
+                'comanda_estado' => (string) ($row['comanda_estado'] ?? 'abierta'),
+                'creada_en' => (string) ($row['comanda_creada_en'] ?? ''),
+                'llegada_en' => (string) ($row['item_creado_en'] ?? $row['comanda_creada_en'] ?? ''),
+                'items' => [],
+            ];
+        }
+
+        $byComanda[$comandaId]['items'][] = [
+            'id' => clean_int($row['item_id'] ?? 0),
+            'descripcion' => (string) ($row['descripcion'] ?? ''),
+            'categoria' => $categoria,
+            'cantidad' => clean_int($row['cantidad'] ?? 0),
+            'notas' => (string) ($row['notas'] ?? ''),
+            'creado_en' => (string) ($row['item_creado_en'] ?? ''),
+            'entregado' => clean_int($row['cocina_entregado'] ?? 0) === 1,
+        ];
+    }
+
+    $pedidos = [];
+    foreach ($byComanda as $order) {
+        $items = isset($order['items']) && is_array($order['items']) ? $order['items'] : [];
+        $itemsTotales = count($items);
+        if ($itemsTotales <= 0) {
+            continue;
+        }
+
+        $itemsListos = 0;
+        foreach ($items as $item) {
+            if (!empty($item['entregado'])) {
+                $itemsListos += 1;
+            }
+        }
+
+        $pedidos[] = [
+            'comanda_id' => clean_int($order['comanda_id'] ?? 0),
+            'mesa_numero' => clean_int($order['mesa_numero'] ?? 0),
+            'comanda_estado' => (string) ($order['comanda_estado'] ?? 'abierta'),
+            'creada_en' => (string) ($order['creada_en'] ?? ''),
+            'llegada_en' => (string) ($order['llegada_en'] ?? $order['creada_en'] ?? ''),
+            'items_totales' => $itemsTotales,
+            'items_listos' => $itemsListos,
+            'items_pendientes' => $itemsTotales - $itemsListos,
+            'items' => $items,
+        ];
+    }
+
+    usort($pedidos, static function (array $a, array $b): int {
+        $aDate = strtotime((string) ($a['llegada_en'] ?? '')) ?: 0;
+        $bDate = strtotime((string) ($b['llegada_en'] ?? '')) ?: 0;
+        if ($aDate !== $bDate) {
+            return $aDate <=> $bDate;
+        }
+        return clean_int($a['comanda_id'] ?? 0) <=> clean_int($b['comanda_id'] ?? 0);
+    });
+
+    return ['pedidos' => $pedidos];
 }
 
 function get_sales_history_payload(PDO $pdo, string $desdeRaw, string $hastaRaw): array
@@ -2763,6 +3204,8 @@ function get_comanda_snapshot(PDO $pdo, int $mesaNumero): array
             'id' => (int) $comanda['id'],
             'estado' => (string) $comanda['estado'],
             'total' => $total,
+            'cocina_lista' => clean_int($comanda['cocina_lista'] ?? 0),
+            'cocina_lista_en' => (string) ($comanda['cocina_lista_en'] ?? ''),
             'creada_en' => (string) $comanda['creada_en'],
             'actualizada_en' => (string) $comanda['actualizada_en'],
         ],
@@ -2787,7 +3230,7 @@ function get_open_comanda(PDO $pdo, int $mesaId): ?array
 {
     ensure_comanda_waiter_schema($pdo);
     $stmt = $pdo->prepare(
-        'SELECT id, mesa_id, estado, total, mesero_id, creada_en, actualizada_en
+        'SELECT id, mesa_id, estado, total, mesero_id, cocina_lista, cocina_lista_en, creada_en, actualizada_en
          FROM comandas
          WHERE mesa_id = :mesa_id AND estado = :estado
          ORDER BY id DESC
@@ -2835,7 +3278,7 @@ function get_or_create_open_comanda(PDO $pdo, int $mesaId, int $meseroId = 0): a
     ]);
 
     $newId = (int) $pdo->lastInsertId();
-    $fresh = $pdo->prepare('SELECT id, mesa_id, estado, total, mesero_id, creada_en, actualizada_en FROM comandas WHERE id = :id LIMIT 1');
+    $fresh = $pdo->prepare('SELECT id, mesa_id, estado, total, mesero_id, cocina_lista, cocina_lista_en, creada_en, actualizada_en FROM comandas WHERE id = :id LIMIT 1');
     $fresh->execute([':id' => $newId]);
 
     return (array) $fresh->fetch();
@@ -3060,7 +3503,8 @@ function get_producto(PDO $pdo, int $productoId): ?array
 function get_comanda_items(PDO $pdo, int $comandaId): array
 {
     $stmt = $pdo->prepare(
-        'SELECT id, comanda_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, notas, creado_en
+        'SELECT id, comanda_id, producto_id, descripcion, categoria, cantidad, precio_unitario, subtotal, notas,
+                creado_en, COALESCE(cocina_entregado, 0) AS cocina_entregado
          FROM comanda_items
          WHERE comanda_id = :comanda_id
          ORDER BY id ASC'
@@ -3074,11 +3518,13 @@ function get_comanda_items(PDO $pdo, int $comandaId): array
             'comanda_id' => (int) $row['comanda_id'],
             'producto_id' => $row['producto_id'] !== null ? (int) $row['producto_id'] : null,
             'descripcion' => (string) $row['descripcion'],
+            'categoria' => (string) ($row['categoria'] ?? ''),
             'cantidad' => (int) $row['cantidad'],
             'precio_unitario' => (float) $row['precio_unitario'],
             'subtotal' => (float) $row['subtotal'],
             'notas' => (string) ($row['notas'] ?? ''),
             'creado_en' => (string) $row['creado_en'],
+            'cocina_entregado' => clean_int($row['cocina_entregado'] ?? 0) === 1 ? 1 : 0,
         ];
     }
 
@@ -3096,12 +3542,24 @@ function recalc_total(PDO $pdo, int $comandaId): float
 
 function register_print_attempt(PDO $pdo, int $comandaId, string $tipo, string $contenido): array
 {
+    $orderPrintTypes = ['pedido', 'pedido_cocina', 'pedido_bebestibles'];
+    $isOrderPrint = in_array($tipo, $orderPrintTypes, true);
     $printOrders = get_setting($pdo, 'imprimir_pedidos', '1') === '1';
-    if (in_array($tipo, ['pedido', 'pedido_cocina', 'pedido_bebestibles'], true) && !$printOrders) {
+    if ($isOrderPrint && !$printOrders) {
         return [
             'ok' => true,
             'estado' => 'omitida',
             'detalle' => 'Impresion de pedidos desactivada en configuracion.',
+            'impresion_id' => null,
+        ];
+    }
+
+    $printerName = resolve_printer_name_for_tipo($pdo, $tipo);
+    if ($isOrderPrint && trim((string) $printerName) === '') {
+        return [
+            'ok' => true,
+            'estado' => 'omitida',
+            'detalle' => 'Impresion automatica de pedidos activa, pero sin impresora configurada.',
             'impresion_id' => null,
         ];
     }
@@ -3119,7 +3577,6 @@ function register_print_attempt(PDO $pdo, int $comandaId, string $tipo, string $
     ]);
 
     $impresionId = (int) $pdo->lastInsertId();
-    $printerName = resolve_printer_name_for_tipo($pdo, $tipo);
     $paperWidthMm = ticket_paper_width_mm($pdo);
     $charsWidth = ticket_chars_width($pdo);
     $fontSizePt = ticket_font_size_pt($pdo);

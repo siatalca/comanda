@@ -167,7 +167,31 @@
                 </div>
             </section>
 
-            <div class="cash-distribution-container">
+            <section id="kitchenBoard" class="kitchen-board hidden">
+                <aside class="kitchen-queue">
+                    <div class="panel-title-row">
+                        <h3>Pedidos de cocina</h3>
+                        <p id="kitchenQueueMeta" class="muted">Sin pedidos</p>
+                    </div>
+                    <div id="kitchenQueueList" class="kitchen-queue-list"></div>
+                </aside>
+                <section class="kitchen-detail">
+                    <div class="panel-title-row">
+                        <h3 id="kitchenDetailTitle">Selecciona un pedido</h3>
+                    </div>
+                    <p id="kitchenDetailMeta" class="muted">-</p>
+                    <div id="kitchenDetailEmpty" class="empty-state">No hay pedidos de cocina pendientes.</div>
+                    <div id="kitchenDetailContent" class="hidden">
+                        <p class="muted">Marca cada item listo para entrega parcial. El boton de confirmacion total se habilita cuando todo esta listo.</p>
+                        <div id="kitchenItems" class="kitchen-items"></div>
+                        <div class="action-row">
+                            <button id="btnKitchenComplete" class="btn btn-primary" type="button" disabled>Pedido completo y listo</button>
+                        </div>
+                    </div>
+                </section>
+            </section>
+
+            <div id="cashDistributionContainer" class="cash-distribution-container">
                 <div class="cash-distribution-main">
                     <div id="mesasGrid" class="mesas-grid"></div>
                 </div>
@@ -284,7 +308,10 @@
                     Monto inicial
                     <input id="cashGateAmount" type="number" min="0" step="1" placeholder="0">
                 </label>
-                <button class="btn btn-primary" type="submit">Abrir caja y continuar</button>
+                <div class="action-row">
+                    <button class="btn btn-primary" type="submit">Abrir caja y continuar</button>
+                    <button id="btnCashGateLogout" class="btn btn-outline" type="button">Salir de la sesion</button>
+                </div>
             </form>
         </div>
     </div>
@@ -416,7 +443,7 @@
 
     <aside id="toast" class="toast" aria-live="polite"></aside>
 
-    <script src="assets/js/api.js" defer></script>
-    <script src="assets/js/servidor.js" defer></script>
+    <script src="assets/js/api.js?v=20260522-5" defer></script>
+    <script src="assets/js/servidor.js?v=20260523-2" defer></script>
 </body>
 </html>

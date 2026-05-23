@@ -49,6 +49,7 @@
         userRole: "",
         isCashier: false,
         isAdmin: false,
+        isKitchen: false,
         cashEnabled: false,
         canViewSalesHistory: false,
         cashAmountVisibility: defaultCashAmountVisibility(),
@@ -59,6 +60,10 @@
         tipPercent: 10,
         dailyMenu: null,
         salesHistory: null,
+        kitchenQueue: [],
+        selectedKitchenComandaId: null,
+        kitchenPendingByItem: new Set(),
+        kitchenCompleting: false,
         knownOpenComandas: new Map(),
         hasMesaBaseline: false,
         highlightedMesas: new Map(),
@@ -81,6 +86,21 @@
         hydrateHeaderUser();
         bindEvents();
         setupRoleBehavior();
+
+        if (state.isKitchen) {
+            await Promise.all([
+                loadAlertSettings(true),
+                loadKitchenQueue()
+            ]);
+
+            state.timer = window.setInterval(async () => {
+                await Promise.all([
+                    loadAlertSettings(true),
+                    loadKitchenQueue(true)
+                ]);
+            }, 5000);
+            return;
+        }
 
         await Promise.all([
             loadMenu(),
@@ -128,6 +148,16 @@
         refs.cashierSummaryList = document.getElementById("cashierSummaryList");
         refs.btnPrecuenta = document.getElementById("btnPrecuenta");
         refs.btnCobrar = document.getElementById("btnCobrar");
+        refs.cashDistributionContainer = document.getElementById("cashDistributionContainer");
+        refs.kitchenBoard = document.getElementById("kitchenBoard");
+        refs.kitchenQueueMeta = document.getElementById("kitchenQueueMeta");
+        refs.kitchenQueueList = document.getElementById("kitchenQueueList");
+        refs.kitchenDetailTitle = document.getElementById("kitchenDetailTitle");
+        refs.kitchenDetailMeta = document.getElementById("kitchenDetailMeta");
+        refs.kitchenDetailEmpty = document.getElementById("kitchenDetailEmpty");
+        refs.kitchenDetailContent = document.getElementById("kitchenDetailContent");
+        refs.kitchenItems = document.getElementById("kitchenItems");
+        refs.btnKitchenComplete = document.getElementById("btnKitchenComplete");
 
         refs.cashSessionPanel = document.getElementById("cashSessionPanel");
         refs.cashSessionStatus = document.getElementById("cashSessionStatus");
@@ -187,6 +217,7 @@
         refs.cashGate = document.getElementById("cashGate");
         refs.cashGateForm = document.getElementById("cashGateForm");
         refs.cashGateAmount = document.getElementById("cashGateAmount");
+        refs.btnCashGateLogout = document.getElementById("btnCashGateLogout");
         refs.btnUserMenu = document.getElementById("btnUserMenu");
         refs.userMenuModal = document.getElementById("userMenuModal");
         refs.btnUserMenuClose = document.getElementById("btnUserMenuClose");
@@ -201,6 +232,12 @@
 
     function bindEvents() {
         refs.btnRefreshMesas.addEventListener("click", async () => {
+            if (state.isKitchen) {
+                await loadKitchenQueue();
+                toast("Cola de cocina actualizada.");
+                return;
+            }
+
             await Promise.all([
                 loadMesas(),
                 loadCashierAccounts(true),
@@ -214,6 +251,9 @@
         });
 
         refs.mesasGrid.addEventListener("click", async (event) => {
+            if (state.isKitchen) {
+                return;
+            }
             const card = event.target.closest("button[data-mesa]");
             if (!card) {
                 return;
@@ -222,6 +262,42 @@
             renderMesas();
             await refreshDetail();
         });
+
+        if (refs.kitchenQueueList) {
+            refs.kitchenQueueList.addEventListener("click", async (event) => {
+                const card = event.target.closest("button[data-kitchen-comanda]");
+                if (!card) {
+                    return;
+                }
+                const comandaId = Number(card.dataset.kitchenComanda || 0);
+                if (comandaId <= 0) {
+                    return;
+                }
+                state.selectedKitchenComandaId = comandaId;
+                renderKitchenQueue();
+                renderKitchenDetail();
+            });
+        }
+
+        if (refs.kitchenItems) {
+            refs.kitchenItems.addEventListener("change", async (event) => {
+                const input = event.target.closest("input[data-kitchen-item]");
+                if (!input) {
+                    return;
+                }
+
+                const itemId = Number(input.dataset.kitchenItem || 0);
+                if (itemId <= 0) {
+                    return;
+                }
+                const delivered = !!input.checked;
+                await updateKitchenItemStatus(itemId, delivered);
+            });
+        }
+
+        if (refs.btnKitchenComplete) {
+            refs.btnKitchenComplete.addEventListener("click", completeKitchenOrder);
+        }
 
         refs.miniMenu.addEventListener("click", (event) => {
             const button = event.target.closest("button[data-add]");
@@ -294,6 +370,9 @@
                 event.preventDefault();
                 await openCashWithValue(refs.cashGateAmount.value);
             });
+        }
+        if (refs.btnCashGateLogout) {
+            refs.btnCashGateLogout.addEventListener("click", logout);
         }
 
         if (refs.btnCashRefresh) {
@@ -407,8 +486,37 @@
         state.userRole = String((document.body.dataset.userRole || "")).toLowerCase();
         state.isCashier = state.userRole === "caja" || state.userRole === "cajero";
         state.isAdmin = state.userRole === "admin";
+        state.isKitchen = state.userRole === "cocina";
         state.cashEnabled = state.isCashier || state.isAdmin;
         state.canViewSalesHistory = state.isAdmin;
+        const openDailyMenuShortcut = state.isAdmin && shouldOpenDailyMenuShortcut();
+
+        if (state.isKitchen) {
+            if (refs.cashSessionPanel) {
+                refs.cashSessionPanel.classList.add("hidden");
+            }
+            if (refs.cashDistributionContainer) {
+                refs.cashDistributionContainer.classList.add("hidden");
+            }
+            if (refs.kitchenBoard) {
+                refs.kitchenBoard.classList.remove("hidden");
+            }
+            if (refs.cashierSummaryWrap) {
+                refs.cashierSummaryWrap.classList.add("hidden");
+            }
+            if (refs.btnRefreshMesas) {
+                refs.btnRefreshMesas.textContent = "Refrescar pedidos";
+            }
+            return;
+        }
+
+        if (refs.kitchenBoard) {
+            refs.kitchenBoard.classList.add("hidden");
+        }
+        if (refs.cashDistributionContainer) {
+            refs.cashDistributionContainer.classList.remove("hidden");
+        }
+
         setupCashAmountPrivacy();
 
         if (state.cashEnabled) {
@@ -463,7 +571,7 @@
             }
             if (state.isAdmin) {
                 if (refs.dailyMenuPanel && "open" in refs.dailyMenuPanel) {
-                    refs.dailyMenuPanel.open = false;
+                    refs.dailyMenuPanel.open = openDailyMenuShortcut;
                 }
             }
             if (state.canViewSalesHistory) {
@@ -491,6 +599,47 @@
         }
         if (refs.salesHistoryTo && !refs.salesHistoryTo.value) {
             refs.salesHistoryTo.value = today;
+        }
+
+        if (openDailyMenuShortcut) {
+            focusDailyMenuPanelFromShortcut();
+        }
+    }
+
+    function shouldOpenDailyMenuShortcut() {
+        if (!window.location || !window.location.search) {
+            return false;
+        }
+        const params = new URLSearchParams(window.location.search);
+        const panel = String(params.get("panel") || "").toLowerCase();
+        return panel === "menu-dia" || panel === "menu_diario" || panel === "daily-menu";
+    }
+
+    function focusDailyMenuPanelFromShortcut() {
+        if (!refs.dailyMenuPanel || refs.dailyMenuPanel.classList.contains("hidden")) {
+            return;
+        }
+
+        refs.dailyMenuPanel.open = true;
+        if (refs.salesHistoryPanel && "open" in refs.salesHistoryPanel) {
+            refs.salesHistoryPanel.open = false;
+        }
+
+        refs.dailyMenuPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+
+        if (refs.dailyMenuDate) {
+            window.setTimeout(() => {
+                try {
+                    refs.dailyMenuDate.focus({ preventScroll: true });
+                } catch (_error) {
+                    refs.dailyMenuDate.focus();
+                }
+            }, 180);
+        }
+
+        if (window.history && typeof window.history.replaceState === "function" && window.location.search) {
+            const cleanUrl = `${window.location.pathname}${window.location.hash || ""}`;
+            window.history.replaceState({}, document.title, cleanUrl);
         }
     }
 
@@ -672,6 +821,238 @@
             if (!silent) {
                 toast(error.message, "error");
             }
+        }
+    }
+
+    function applyKitchenQueueData(payload) {
+        const pedidosRaw = Array.isArray(payload && payload.pedidos) ? payload.pedidos : [];
+        const pedidos = pedidosRaw.map((order) => {
+            const items = Array.isArray(order.items) ? order.items : [];
+            return {
+                comanda_id: Number(order.comanda_id || 0),
+                mesa_numero: Number(order.mesa_numero || 0),
+                llegada_en: String(order.llegada_en || order.creada_en || ""),
+                items_totales: Number(order.items_totales || items.length || 0),
+                items_listos: Number(order.items_listos || 0),
+                items_pendientes: Number(order.items_pendientes || 0),
+                items: items.map((item) => ({
+                    id: Number(item.id || 0),
+                    descripcion: String(item.descripcion || ""),
+                    categoria: String(item.categoria || ""),
+                    cantidad: Number(item.cantidad || 0),
+                    notas: String(item.notas || ""),
+                    creado_en: String(item.creado_en || ""),
+                    entregado: Boolean(item.entregado)
+                }))
+            };
+        }).filter((order) => order.comanda_id > 0);
+
+        state.kitchenQueue = pedidos;
+
+        const validComandaIds = new Set();
+        const validItemIds = new Set();
+        state.kitchenQueue.forEach((order) => {
+            validComandaIds.add(Number(order.comanda_id));
+            (order.items || []).forEach((item) => {
+                if (Number(item.id) > 0) {
+                    validItemIds.add(Number(item.id));
+                }
+            });
+        });
+
+        state.kitchenPendingByItem.forEach((itemId) => {
+            if (!validItemIds.has(Number(itemId))) {
+                state.kitchenPendingByItem.delete(Number(itemId));
+            }
+        });
+
+        if (
+            !state.selectedKitchenComandaId
+            || !validComandaIds.has(Number(state.selectedKitchenComandaId))
+        ) {
+            state.selectedKitchenComandaId = state.kitchenQueue.length > 0
+                ? Number(state.kitchenQueue[0].comanda_id)
+                : null;
+        }
+    }
+
+    async function loadKitchenQueue(silent) {
+        if (!state.isKitchen) {
+            return;
+        }
+
+        try {
+            const payload = await api.getKitchenQueue();
+            applyKitchenQueueData(payload || {});
+            renderKitchenQueue();
+            renderKitchenDetail();
+        } catch (error) {
+            if (!silent) {
+                toast(error.message, "error");
+            }
+        }
+    }
+
+    function getSelectedKitchenOrder() {
+        const selectedId = Number(state.selectedKitchenComandaId || 0);
+        if (selectedId <= 0) {
+            return null;
+        }
+        return state.kitchenQueue.find((order) => Number(order.comanda_id) === selectedId) || null;
+    }
+
+    function renderKitchenQueue() {
+        if (!state.isKitchen || !refs.kitchenQueueList || !refs.kitchenQueueMeta) {
+            return;
+        }
+
+        const queue = Array.isArray(state.kitchenQueue) ? state.kitchenQueue : [];
+        if (queue.length === 0) {
+            refs.kitchenQueueMeta.textContent = "Sin pedidos";
+            refs.kitchenQueueList.innerHTML = `<p class="empty-state">No hay pedidos de cocina pendientes.</p>`;
+            return;
+        }
+
+        refs.kitchenQueueMeta.textContent = `${queue.length} pedido(s) en cola`;
+        refs.kitchenQueueList.innerHTML = queue
+            .map((order) => {
+                const selected = Number(order.comanda_id) === Number(state.selectedKitchenComandaId) ? "selected" : "";
+                const pending = Number(order.items_pendientes || 0);
+                const ready = Number(order.items_listos || 0);
+                const total = Number(order.items_totales || 0);
+                return `
+                    <button type="button" class="kitchen-order-card ${selected}" data-kitchen-comanda="${order.comanda_id}">
+                        <strong>Mesa ${order.mesa_numero}</strong>
+                        <span>Llegada: ${escapeHtml(formatKitchenDateTime(order.llegada_en))}</span>
+                        <span>Listos: ${ready}/${total} - Pendientes: ${pending}</span>
+                    </button>
+                `;
+            })
+            .join("");
+    }
+
+    function renderKitchenDetail() {
+        if (
+            !state.isKitchen
+            || !refs.kitchenDetailTitle
+            || !refs.kitchenDetailMeta
+            || !refs.kitchenDetailEmpty
+            || !refs.kitchenDetailContent
+            || !refs.kitchenItems
+            || !refs.btnKitchenComplete
+        ) {
+            return;
+        }
+
+        const order = getSelectedKitchenOrder();
+        if (!order) {
+            refs.kitchenDetailTitle.textContent = "Selecciona un pedido";
+            refs.kitchenDetailMeta.textContent = "-";
+            refs.kitchenDetailEmpty.classList.remove("hidden");
+            refs.kitchenDetailContent.classList.add("hidden");
+            refs.btnKitchenComplete.disabled = true;
+            refs.btnKitchenComplete.removeAttribute("data-comanda-id");
+            return;
+        }
+
+        refs.kitchenDetailTitle.textContent = `Mesa ${order.mesa_numero}`;
+        refs.kitchenDetailMeta.textContent = `Llegada: ${formatKitchenDateTime(order.llegada_en)} - Pendientes: ${order.items_pendientes}`;
+        refs.kitchenDetailEmpty.classList.add("hidden");
+        refs.kitchenDetailContent.classList.remove("hidden");
+
+        const items = Array.isArray(order.items) ? order.items : [];
+        if (items.length === 0) {
+            refs.kitchenItems.innerHTML = `<p class="empty-state">Esta mesa no tiene items de cocina.</p>`;
+            refs.btnKitchenComplete.disabled = true;
+            refs.btnKitchenComplete.removeAttribute("data-comanda-id");
+            return;
+        }
+
+        refs.kitchenItems.innerHTML = items
+            .map((item) => {
+                const itemId = Number(item.id || 0);
+                const isPendingSave = state.kitchenPendingByItem.has(itemId);
+                const delivered = Boolean(item.entregado);
+                const disabled = isPendingSave || state.kitchenCompleting ? "disabled" : "";
+                return `
+                    <article class="kitchen-item ${delivered ? "ready" : "pending"}">
+                        <div class="kitchen-item-head">
+                            <strong>${Number(item.cantidad || 0)} x ${escapeHtml(item.descripcion || "")}</strong>
+                            <label class="kitchen-item-check">
+                                <input type="checkbox" data-kitchen-item="${itemId}" ${delivered ? "checked" : ""} ${disabled}>
+                                <span>${delivered ? "Listo" : "Pendiente"}</span>
+                            </label>
+                        </div>
+                        ${item.notas ? `<small>Nota: ${escapeHtml(item.notas)}</small>` : ""}
+                    </article>
+                `;
+            })
+            .join("");
+
+        const allReady = Number(order.items_totales || 0) > 0 && Number(order.items_pendientes || 0) === 0;
+        refs.btnKitchenComplete.disabled = !allReady || state.kitchenCompleting;
+        refs.btnKitchenComplete.dataset.comandaId = String(order.comanda_id);
+        refs.btnKitchenComplete.textContent = state.kitchenCompleting
+            ? "Confirmando..."
+            : `Pedido completo mesa ${order.mesa_numero}`;
+    }
+
+    async function updateKitchenItemStatus(itemId, delivered) {
+        if (!state.isKitchen) {
+            return;
+        }
+
+        const id = Number(itemId || 0);
+        if (id <= 0 || state.kitchenPendingByItem.has(id)) {
+            return;
+        }
+
+        state.kitchenPendingByItem.add(id);
+        renderKitchenDetail();
+
+        try {
+            const response = await api.setKitchenItemStatus(id, delivered);
+            applyKitchenQueueData((response && response.data) || {});
+            renderKitchenQueue();
+            renderKitchenDetail();
+            toast(delivered ? "Item marcado como listo." : "Item marcado como pendiente.");
+        } catch (error) {
+            toast(error.message, "error");
+            await loadKitchenQueue(true);
+        } finally {
+            state.kitchenPendingByItem.delete(id);
+            renderKitchenDetail();
+        }
+    }
+
+    async function completeKitchenOrder() {
+        if (!state.isKitchen || state.kitchenCompleting) {
+            return;
+        }
+
+        const order = getSelectedKitchenOrder();
+        if (!order) {
+            return;
+        }
+
+        const allReady = Number(order.items_totales || 0) > 0 && Number(order.items_pendientes || 0) === 0;
+        if (!allReady) {
+            return;
+        }
+
+        state.kitchenCompleting = true;
+        renderKitchenDetail();
+        try {
+            const response = await api.completeKitchenOrder(order.comanda_id);
+            applyKitchenQueueData((response && response.data) || {});
+            renderKitchenQueue();
+            renderKitchenDetail();
+            toast(`Mesa ${order.mesa_numero} marcada como lista.`);
+        } catch (error) {
+            toast(error.message, "error");
+        } finally {
+            state.kitchenCompleting = false;
+            renderKitchenDetail();
         }
     }
 
@@ -1321,6 +1702,20 @@
             return;
         }
 
+        const pendingAccounts = Array.isArray(state.cuentas)
+            ? state.cuentas.filter((account) => Number(account && account.comanda_id ? account.comanda_id : 0) > 0)
+            : [];
+        if (pendingAccounts.length > 0) {
+            const mesasPendientes = [...new Set(
+                pendingAccounts
+                    .map((account) => Number(account && account.mesa_numero ? account.mesa_numero : 0))
+                    .filter((mesaNumero) => Number.isFinite(mesaNumero) && mesaNumero > 0)
+            )].sort((a, b) => a - b);
+            const mesasTexto = mesasPendientes.length > 0 ? ` (${mesasPendientes.join(", ")})` : "";
+            toast(`No puedes cerrar caja: hay mesas pendientes${mesasTexto}.`, "error");
+            return;
+        }
+
         if (!refs.cashCloseModal || !refs.cashCloseForm) {
             toast("No se pudo abrir el formulario de cierre.", "error");
             return;
@@ -1579,13 +1974,15 @@
             state.miniCart.clear();
             renderMiniCart();
             await Promise.all([loadMesas(true), refreshDetail(true), loadCashierAccounts(true)]);
+            const printStatus = response && response.impresion ? response.impresion : null;
+            const printSkippedByConfig = isPrintOmittedByConfig(printStatus);
 
-            if (response.impresion && !response.impresion.ok) {
-                toast(`Comanda actualizada, pero fallo impresion: ${response.impresion.detalle}`, "error");
+            if (printStatus && !printStatus.ok && !printSkippedByConfig) {
+                toast(`Comanda actualizada, pero fallo impresion: ${printStatus.detalle}`, "error");
                 return;
             }
-            if (response.impresion && response.impresion.warning) {
-                toast(`Items agregados. Aviso impresion: ${response.impresion.warning}`, "error");
+            if (printStatus && printStatus.warning && !printSkippedByConfig) {
+                toast(`Items agregados. Aviso impresion: ${printStatus.warning}`, "error");
                 return;
             }
             toast("Items agregados a la comanda.");
@@ -1905,12 +2302,49 @@
         return `${now.getFullYear()}-${month}-${day}`;
     }
 
+    function formatKitchenDateTime(value) {
+        const raw = String(value || "").trim();
+        if (!raw) {
+            return "-";
+        }
+
+        const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+        const parsed = new Date(normalized);
+        if (Number.isNaN(parsed.getTime())) {
+            return raw;
+        }
+
+        const day = parsed.toLocaleDateString("es-CL", {
+            day: "2-digit",
+            month: "2-digit"
+        });
+        const hour = parsed.toLocaleTimeString("es-CL", {
+            hour: "2-digit",
+            minute: "2-digit"
+        });
+        return `${day} ${hour}`;
+    }
+
     function toast(message, type) {
         refs.toast.textContent = message;
         refs.toast.className = `toast show ${type === "error" ? "error" : "ok"}`;
         window.setTimeout(() => {
             refs.toast.className = "toast";
         }, 3200);
+    }
+
+    function isPrintOmittedByConfig(printStatus) {
+        if (!printStatus || typeof printStatus !== "object") {
+            return false;
+        }
+        if (String(printStatus.estado || "").toLowerCase() === "omitida") {
+            return true;
+        }
+
+        const detail = String(printStatus.detalle || "").toLowerCase();
+        return detail.includes("desactivada en configuracion")
+            || detail.includes("desactivada en configuración")
+            || detail.includes("sin impresora configurada");
     }
 
     function escapeHtml(value) {

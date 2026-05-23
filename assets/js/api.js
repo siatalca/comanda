@@ -4,7 +4,11 @@
     function resolveApiBase() {
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
         const host = window.location.hostname || "127.0.0.1";
-        return `${protocol}//${host}:3003/api.php`;
+        try {
+            return new URL("api.php", window.location.href).toString();
+        } catch (error) {
+            return `${protocol}//${host}/api.php`;
+        }
     }
 
     async function request(action, options = {}) {
@@ -18,7 +22,6 @@
             }
         });
 
-        const url = `${API_BASE}?${params.toString()}`;
         const config = {
             method,
             headers: {
@@ -32,6 +35,7 @@
             config.body = JSON.stringify(options.body);
         }
 
+        const url = `${API_BASE}?${params.toString()}`;
         const response = await fetch(url, config);
         const payload = await response.json().catch(() => ({}));
 
@@ -206,6 +210,27 @@
                 }
             });
             return data.data || {};
+        },
+        getKitchenQueue: async function () {
+            const data = await request("cocina_pedidos");
+            return data.data || {};
+        },
+        setKitchenItemStatus: async function (itemId, entregado) {
+            return request("cocina_item_estado", {
+                method: "POST",
+                body: {
+                    item_id: itemId,
+                    entregado: entregado ? 1 : 0
+                }
+            });
+        },
+        completeKitchenOrder: async function (comandaId) {
+            return request("cocina_comanda_lista", {
+                method: "POST",
+                body: {
+                    comanda_id: comandaId
+                }
+            });
         },
         getChargeConfig: async function () {
             const data = await request("config_cobro");

@@ -123,3 +123,75 @@ Ejemplo de restauracion:
 ```powershell
 C:\xampp\mysql\bin\mysql.exe -h 127.0.0.1 -P 3306 -u root < database\comanda_schema.sql
 ```
+
+## 7) App de escritorio (Electron)
+
+Ahora el proyecto incluye un wrapper desktop con Electron.
+
+1. Instala dependencias (incluye Electron):
+
+```powershell
+npm install
+```
+
+2. Ejecuta la app de escritorio:
+
+```powershell
+npm run desktop
+```
+
+Que hace:
+- inicia `server.js` automaticamente,
+- espera que el backend responda en `http://127.0.0.1:3003/login.html`,
+- abre la ventana desktop con `login.html`.
+
+Opcional (si quieres usar servidor externo o ya iniciado):
+
+```powershell
+$env:ELECTRON_START_SERVER="0"
+$env:COMANDA_URL="http://127.0.0.1:3003/login.html"
+npm run desktop
+```
+
+### 7.1) Desktop conectado a BD remota (ej: comanda.mi-registro.cl)
+
+Ahora Electron tambien puede leer configuracion desde `desktop.config.json` en la raiz del proyecto.
+
+Ejemplo base: `desktop.config.example.json`
+
+Campos principales:
+- `dbHost`: host MySQL remoto (ejemplo: `comanda.mi-registro.cl`)
+- `dbPort`: puerto MySQL (normalmente `3306`)
+- `dbUser`: usuario de base de datos
+- `dbPass`: password de base de datos
+- `dbName`: nombre de base (`comanda`)
+
+Luego ejecuta:
+
+```powershell
+npm run desktop
+```
+
+## 8) App movil (Android/iOS con Capacitor)
+
+Se agrego el modulo `mobile/` para empaquetar una app movil.
+
+Pasos rapidos:
+
+```powershell
+cd mobile
+npm install
+npm run add:android
+npm run sync:android
+npm run open:android
+```
+
+Al abrirse en Android Studio, compilas y ejecutas.
+
+La app movil muestra un formulario para ingresar la URL del servidor en LAN:
+
+```text
+http://IP_DEL_PC:3003/login.html
+```
+
+Guia completa en `mobile/README.md`.

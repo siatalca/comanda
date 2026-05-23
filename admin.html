@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Panel Admin - Donde Abel</title>
-    <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260523-3">
 </head>
 <body class="admin-page">
     <header class="app-header">
@@ -25,7 +25,7 @@
                 <section class="panel panel-admin-focus admin-main">
                     <div class="panel-title-row">
                         <h2>Menu del dia / Productos activos</h2>
-                        <a class="btn btn-outline btn-small" href="servidor.html">Ir a menu diario</a>
+                        <a class="btn btn-outline btn-small" href="servidor.html?panel=menu-dia#dailyMenuPanel">Ir a menu diario</a>
                     </div>
                     <p class="muted">Lista visible al inicio. Aqui gestionas productos disponibles para el dia.</p>
 
@@ -33,6 +33,12 @@
                 </section>
 
                 <aside class="panel admin-side">
+                    <section class="admin-inline-panel admin-priority-panel">
+                        <h3>Paso clave del dia</h3>
+                        <p class="muted">Para habilitar pedidos del mesero, confirma el menu diario.</p>
+                        <a class="btn btn-primary" href="servidor.html?panel=menu-dia#dailyMenuPanel">Confirmar menu del dia</a>
+                    </section>
+
                     <h2>Vistas laterales</h2>
                     <p class="muted">Abre rapido las secciones colapsadas.</p>
                     <div id="adminQuickNav" class="admin-quick-nav">
@@ -229,7 +235,7 @@
 
     <aside id="toast" class="toast" aria-live="polite"></aside>
 
-    <script src="assets/js/api.js" defer></script>
-    <script src="assets/js/admin.js" defer></script>
+    <script src="assets/js/api.js?v=20260522-5" defer></script>
+    <script src="assets/js/admin.js?v=20260523-1" defer></script>
 </body>
 </html>

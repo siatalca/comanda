@@ -141,6 +141,9 @@ async function initDbSchema() {
             id INT UNSIGNED NOT NULL AUTO_INCREMENT,
             mesa_id INT UNSIGNED NOT NULL,
             mesero_id INT UNSIGNED DEFAULT NULL,
+            cocina_lista TINYINT(1) NOT NULL DEFAULT 0,
+            cocina_lista_en DATETIME DEFAULT NULL,
+            cocina_lista_por INT UNSIGNED DEFAULT NULL,
             estado VARCHAR(20) NOT NULL DEFAULT 'abierta',
             total DECIMAL(12,2) NOT NULL DEFAULT 0,
             propina_monto DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -162,10 +165,14 @@ async function initDbSchema() {
             comanda_id INT UNSIGNED NOT NULL,
             producto_id INT UNSIGNED DEFAULT NULL,
             descripcion VARCHAR(255) NOT NULL,
+            categoria VARCHAR(50) DEFAULT NULL,
             cantidad INT NOT NULL,
             precio_unitario DECIMAL(12,2) NOT NULL,
             subtotal DECIMAL(12,2) NOT NULL,
             notas TEXT,
+            cocina_entregado TINYINT(1) NOT NULL DEFAULT 0,
+            cocina_entregado_en DATETIME DEFAULT NULL,
+            cocina_entregado_por INT UNSIGNED DEFAULT NULL,
             creado_en DATETIME NOT NULL,
             PRIMARY KEY (id),
             KEY idx_comanda_items_comanda (comanda_id),
@@ -267,8 +274,15 @@ async function initDbSchema() {
     await ensureTableColumn("comandas", "propina_monto", "DECIMAL(12,2) NOT NULL DEFAULT 0");
     await ensureTableColumn("comandas", "propina_porcentaje", "DECIMAL(5,2) NOT NULL DEFAULT 10");
     await ensureTableColumn("comandas", "mesero_id", "INT UNSIGNED DEFAULT NULL");
+    await ensureTableColumn("comandas", "cocina_lista", "TINYINT(1) NOT NULL DEFAULT 0");
+    await ensureTableColumn("comandas", "cocina_lista_en", "DATETIME DEFAULT NULL");
+    await ensureTableColumn("comandas", "cocina_lista_por", "INT UNSIGNED DEFAULT NULL");
     await ensureTableColumn("pagos", "usuario_id", "INT UNSIGNED DEFAULT NULL");
     await ensureTableColumn("pagos", "caja_sesion_id", "INT UNSIGNED DEFAULT NULL");
+    await ensureTableColumn("comanda_items", "categoria", "VARCHAR(50) DEFAULT NULL");
+    await ensureTableColumn("comanda_items", "cocina_entregado", "TINYINT(1) NOT NULL DEFAULT 0");
+    await ensureTableColumn("comanda_items", "cocina_entregado_en", "DATETIME DEFAULT NULL");
+    await ensureTableColumn("comanda_items", "cocina_entregado_por", "INT UNSIGNED DEFAULT NULL");
     await run("UPDATE usuarios SET alertas_nuevas_comandas = 1 WHERE alertas_nuevas_comandas IS NULL");
 }
 
@@ -595,7 +609,7 @@ async function handleApiGet(req, res, action) {
         return;
     }
     case "caja_estado_actual": {
-        await requireCashierRoles(req, res);
+        await requireSalesHistoryRoles(req, res);
         const data = await getCashStatusPayload();
         jsonResponse(res, 200, { ok: true, data });
         return;
@@ -613,6 +627,12 @@ async function handleApiGet(req, res, action) {
             throwHttp(422, "Mesa invalida.");
         }
         const data = await getComandaSnapshot(mesaNumero);
+        jsonResponse(res, 200, { ok: true, data });
+        return;
+    }
+    case "cocina_pedidos": {
+        await requireKitchenRoles(req, res);
+        const data = await getKitchenQueuePayload();
         jsonResponse(res, 200, { ok: true, data });
         return;
     }
@@ -732,6 +752,14 @@ async function handleApiPost(req, res, action) {
         await requireOperationRoles(req, res);
         requiredFields(body, ["mesa_numero"]);
         await processPrintBill(req, res, body);
+        return;
+    case "cocina_item_estado":
+        await requireKitchenRoles(req, res);
+        await processKitchenItemStatus(req, res, body);
+        return;
+    case "cocina_comanda_lista":
+        await requireKitchenRoles(req, res);
+        await processKitchenComandaReady(req, res, body);
         return;
     default:
         throwHttp(404, "Accion POST no encontrada.");
@@ -1145,6 +1173,22 @@ async function processCloseCashSession(req, res, body) {
         throwHttp(403, "Solo la cajera que abrio la caja (o admin) puede cerrarla.");
     }
 
+    const openAccounts = await getOpenAccountsDetail();
+    if (Array.isArray(openAccounts) && openAccounts.length > 0) {
+        const mesasPendientes = [...new Set(
+            openAccounts
+                .map((account) => cleanInt(account && account.mesa_numero))
+                .filter((mesaNumero) => mesaNumero > 0)
+        )].sort((a, b) => a - b);
+
+        const mesasText = mesasPendientes.length > 0 ? ` (${mesasPendientes.join(", ")})` : "";
+        throwHttp(
+            422,
+            `No puedes cerrar caja: hay mesas pendientes${mesasText}. Debes cobrarlas y cerrarlas antes.`,
+            { mesas_pendientes: mesasPendientes }
+        );
+    }
+
     const montoFinal = cleanFloat(body.monto_final_declarado, -1);
     if (montoFinal < 0) {
         throwHttp(422, "Debes indicar el monto final contado para cerrar caja.");
@@ -1218,12 +1262,13 @@ async function processSendOrder(req, res, body) {
         for (const item of items) {
             await conn.execute(
                 `INSERT INTO comanda_items
-                 (comanda_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, notas, creado_en)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                 (comanda_id, producto_id, descripcion, categoria, cantidad, precio_unitario, subtotal, notas, creado_en)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     comandaId,
                     item.producto_id,
                     item.descripcion,
+                    String(item.categoria || "").trim(),
                     item.cantidad,
                     item.precio_unitario,
                     item.subtotal,
@@ -1235,7 +1280,11 @@ async function processSendOrder(req, res, body) {
 
         const totalComanda = await recalcTotalDb(conn, comandaId);
         await conn.execute(
-            "UPDATE comandas SET total = ?, actualizada_en = ? WHERE id = ?",
+            `UPDATE comandas
+             SET total = ?,
+                 actualizada_en = ?,
+                 cocina_lista = 0
+             WHERE id = ?`,
             [totalComanda, nowTs(), comandaId]
         );
         await conn.execute(
@@ -1442,6 +1491,125 @@ async function processPrintBill(req, res, body) {
     });
 }
 
+async function processKitchenItemStatus(req, res, body) {
+    requiredFields(body, ["item_id", "entregado"]);
+    const user = await requireKitchenRoles(req, res);
+    const itemId = cleanInt(body.item_id);
+    if (itemId <= 0) {
+        throwHttp(422, "Item de cocina invalido.");
+    }
+
+    const raw = body.entregado;
+    const delivered = raw === true || raw === 1 || raw === "1";
+    const deliveredValue = delivered ? 1 : 0;
+
+    const row = await one(
+        `SELECT ci.id, ci.comanda_id
+         FROM comanda_items ci
+         INNER JOIN comandas c ON c.id = ci.comanda_id
+         WHERE ci.id = ?
+           AND c.estado = 'abierta'
+         LIMIT 1`,
+        [itemId]
+    );
+    if (!row) {
+        throwHttp(404, "El item no existe o su mesa ya esta cerrada.");
+    }
+
+    const now = nowTs();
+    await run(
+        `UPDATE comanda_items
+         SET cocina_entregado = ?,
+             cocina_entregado_en = ?,
+             cocina_entregado_por = ?
+         WHERE id = ?`,
+        [
+            deliveredValue,
+            delivered ? now : null,
+            delivered ? cleanInt(user.id) : null,
+            itemId
+        ]
+    );
+
+    await run(
+        `UPDATE comandas
+         SET cocina_lista = 0,
+             actualizada_en = ?
+         WHERE id = ?`,
+        [now, cleanInt(row.comanda_id)]
+    );
+
+    jsonResponse(res, 200, {
+        ok: true,
+        mensaje: delivered ? "Item marcado como listo." : "Item marcado como pendiente.",
+        data: await getKitchenQueuePayload()
+    });
+}
+
+async function processKitchenComandaReady(req, res, body) {
+    requiredFields(body, ["comanda_id"]);
+    const user = await requireKitchenRoles(req, res);
+    const comandaId = cleanInt(body.comanda_id);
+    if (comandaId <= 0) {
+        throwHttp(422, "Comanda invalida.");
+    }
+
+    const rows = await all(
+        `SELECT
+            ci.id,
+            COALESCE(NULLIF(ci.categoria, ''), p.categoria, '') AS categoria
+         FROM comanda_items ci
+         LEFT JOIN productos p ON p.id = ci.producto_id
+         INNER JOIN comandas c ON c.id = ci.comanda_id
+         WHERE ci.comanda_id = ?
+           AND c.estado = 'abierta'
+         ORDER BY ci.id ASC`,
+        [comandaId]
+    );
+
+    if (rows.length === 0) {
+        throwHttp(404, "La comanda no existe o no tiene items.");
+    }
+
+    const kitchenItemIds = [];
+    for (const row of rows) {
+        if (!isBeverageCategory(String(row.categoria || ""))) {
+            kitchenItemIds.push(cleanInt(row.id));
+        }
+    }
+
+    if (kitchenItemIds.length === 0) {
+        throwHttp(422, "La comanda no tiene items de cocina para completar.");
+    }
+
+    const placeholders = kitchenItemIds.map(() => "?").join(",");
+    const now = nowTs();
+    await run(
+        `UPDATE comanda_items
+         SET cocina_entregado = 1,
+             cocina_entregado_en = ?,
+             cocina_entregado_por = ?
+         WHERE id IN (${placeholders})`,
+        [now, cleanInt(user.id), ...kitchenItemIds]
+    );
+
+    await run(
+        `UPDATE comandas
+         SET cocina_lista = 1,
+             cocina_lista_en = ?,
+             cocina_lista_por = ?,
+             actualizada_en = ?
+         WHERE id = ?`,
+        [now, cleanInt(user.id), now, comandaId]
+    );
+
+    jsonResponse(res, 200, {
+        ok: true,
+        mensaje: "Pedido de cocina marcado como listo.",
+        data: await getKitchenQueuePayload()
+    });
+}
+
 async function requireAdmin(req, res) {
     const user = await authCurrentUser(req, res);
     if (!user || String(user.rol || "") !== "admin") {
@@ -1482,6 +1650,18 @@ async function requireSalesHistoryRoles(req, res) {
     const allowed = ["mesero", "caja", "cajero", "admin"];
     if (!allowed.includes(String(user.rol || ""))) {
         throwHttp(403, "Tu rol no tiene permisos para ver el desglose de ventas.");
+    }
+    return user;
+}
+
+async function requireKitchenRoles(req, res) {
+    const user = await authCurrentUser(req, res);
+    if (!user) {
+        throwHttp(401, "Debes iniciar sesion.");
+    }
+    const allowed = ["cocina", "admin"];
+    if (!allowed.includes(String(user.rol || ""))) {
+        throwHttp(403, "Tu rol no tiene permisos para operar cocina.");
     }
     return user;
 }
@@ -1920,7 +2100,10 @@ async function getMesasState() {
             m.estado,
             m.actualizada_en,
             c.id AS comanda_id,
+            c.mesero_id AS comanda_mesero_id,
             c.total AS comanda_total,
+            c.cocina_lista AS comanda_cocina_lista,
+            c.cocina_lista_en AS comanda_cocina_lista_en,
             c.actualizada_en AS comanda_actualizada_en,
             COALESCE(ci.total_items, 0) AS total_items
          FROM mesas m
@@ -1947,7 +2130,10 @@ async function getMesasState() {
         estado: String(row.estado || ""),
         actualizada_en: String(row.actualizada_en || ""),
         comanda_id: row.comanda_id === null ? null : cleanInt(row.comanda_id),
+        comanda_mesero_id: row.comanda_mesero_id === null ? null : cleanInt(row.comanda_mesero_id),
         comanda_total: row.comanda_total === null ? 0 : cleanFloat(row.comanda_total),
+        comanda_cocina_lista: row.comanda_cocina_lista === null ? 0 : cleanInt(row.comanda_cocina_lista),
+        comanda_cocina_lista_en: String(row.comanda_cocina_lista_en || ""),
         comanda_actualizada_en: row.comanda_actualizada_en,
         total_items: cleanInt(row.total_items)
     }));
@@ -2008,6 +2194,108 @@ async function getOpenAccountsDetail() {
     const list = Object.values(accounts);
     list.sort((a, b) => cleanInt(a.mesa_numero) - cleanInt(b.mesa_numero));
     return list;
+}
+
+async function getKitchenQueuePayload() {
+    const rows = await all(
+        `SELECT
+            c.id AS comanda_id,
+            c.estado AS comanda_estado,
+            c.creada_en AS comanda_creada_en,
+            COALESCE(c.cocina_lista, 0) AS cocina_lista,
+            m.numero AS mesa_numero,
+            ci.id AS item_id,
+            ci.descripcion,
+            ci.categoria,
+            ci.cantidad,
+            ci.notas,
+            ci.creado_en AS item_creado_en,
+            COALESCE(ci.cocina_entregado, 0) AS cocina_entregado,
+            COALESCE(NULLIF(ci.categoria, ''), p.categoria, '') AS categoria_resuelta
+         FROM comandas c
+         INNER JOIN mesas m ON m.id = c.mesa_id
+         INNER JOIN comanda_items ci ON ci.comanda_id = c.id
+         LEFT JOIN productos p ON p.id = ci.producto_id
+         WHERE c.estado = 'abierta'
+           AND COALESCE(c.cocina_lista, 0) = 0
+           AND (
+               c.cocina_lista_en IS NULL
+               OR ci.creado_en > c.cocina_lista_en
+               OR COALESCE(ci.cocina_entregado, 0) = 0
+           )
+         ORDER BY ci.creado_en ASC, ci.id ASC`
+    );
+
+    const byComanda = new Map();
+
+    for (const row of rows) {
+        const categoria = String(row.categoria_resuelta || row.categoria || "");
+        if (isBeverageCategory(categoria)) {
+            continue;
+        }
+
+        const comandaId = cleanInt(row.comanda_id);
+        if (comandaId <= 0) {
+            continue;
+        }
+
+        if (!byComanda.has(comandaId)) {
+            byComanda.set(comandaId, {
+                comanda_id: comandaId,
+                mesa_numero: cleanInt(row.mesa_numero),
+                comanda_estado: String(row.comanda_estado || "abierta"),
+                creada_en: String(row.comanda_creada_en || ""),
+                llegada_en: String(row.item_creado_en || row.comanda_creada_en || ""),
+                items: []
+            });
+        }
+
+        const delivered = cleanInt(row.cocina_entregado) === 1;
+        byComanda.get(comandaId).items.push({
+            id: cleanInt(row.item_id),
+            descripcion: String(row.descripcion || ""),
+            categoria: categoria,
+            cantidad: cleanInt(row.cantidad),
+            notas: String(row.notas || ""),
+            creado_en: String(row.item_creado_en || ""),
+            entregado: delivered
+        });
+    }
+
+    const pedidos = [];
+    for (const order of byComanda.values()) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        const itemsTotales = items.length;
+        if (itemsTotales <= 0) {
+            continue;
+        }
+
+        const itemsListos = items.filter((item) => item.entregado).length;
+        const itemsPendientes = itemsTotales - itemsListos;
+
+        pedidos.push({
+            comanda_id: cleanInt(order.comanda_id),
+            mesa_numero: cleanInt(order.mesa_numero),
+            comanda_estado: String(order.comanda_estado || "abierta"),
+            creada_en: String(order.creada_en || ""),
+            llegada_en: String(order.llegada_en || order.creada_en || ""),
+            items_totales: itemsTotales,
+            items_listos: itemsListos,
+            items_pendientes: itemsPendientes,
+            items
+        });
+    }
+
+    pedidos.sort((a, b) => {
+        const dateA = Date.parse(String(a.llegada_en || "")) || 0;
+        const dateB = Date.parse(String(b.llegada_en || "")) || 0;
+        if (dateA !== dateB) {
+            return dateA - dateB;
+        }
+        return cleanInt(a.comanda_id) - cleanInt(b.comanda_id);
+    });
+
+    return { pedidos };
 }
 
 async function getSalesHistoryPayload(desdeRaw, hastaRaw) {
@@ -2217,6 +2505,8 @@ async function getComandaSnapshot(mesaNumero) {
             id: cleanInt(comanda.id),
             estado: String(comanda.estado || ""),
             total,
+            cocina_lista: cleanInt(comanda.cocina_lista),
+            cocina_lista_en: String(comanda.cocina_lista_en || ""),
             creada_en: String(comanda.creada_en || ""),
             actualizada_en: String(comanda.actualizada_en || "")
         },
@@ -2236,7 +2526,7 @@ async function getMesaByNumber(mesaNumero) {
 
 async function getOpenComanda(mesaId) {
     return one(
-        `SELECT id, mesa_id, estado, total, mesero_id, creada_en, actualizada_en
+        `SELECT id, mesa_id, estado, total, mesero_id, cocina_lista, cocina_lista_en, creada_en, actualizada_en
          FROM comandas
          WHERE mesa_id = ? AND estado = ?
          ORDER BY id DESC
@@ -2248,7 +2538,7 @@ async function getOpenComanda(mesaId) {
 async function getOrCreateOpenComandaDb(db, mesaId, meseroId = 0) {
     let comanda = await oneDb(
         db,
-        `SELECT id, mesa_id, estado, total, mesero_id, creada_en, actualizada_en
+        `SELECT id, mesa_id, estado, total, mesero_id, cocina_lista, cocina_lista_en, creada_en, actualizada_en
          FROM comandas
          WHERE mesa_id = ? AND estado = ?
          ORDER BY id DESC
@@ -2277,7 +2567,7 @@ async function getOrCreateOpenComandaDb(db, mesaId, meseroId = 0) {
     const newId = cleanInt(result.insertId);
     comanda = await oneDb(
         db,
-        `SELECT id, mesa_id, estado, total, mesero_id, creada_en, actualizada_en
+        `SELECT id, mesa_id, estado, total, mesero_id, cocina_lista, cocina_lista_en, creada_en, actualizada_en
          FROM comandas
          WHERE id = ?
          LIMIT 1`,
@@ -2401,7 +2691,8 @@ async function getProducto(productoId) {
 
 async function getComandaItems(comandaId) {
     const rows = await all(
-        `SELECT id, comanda_id, producto_id, descripcion, cantidad, precio_unitario, subtotal, notas, creado_en
+        `SELECT id, comanda_id, producto_id, descripcion, categoria, cantidad, precio_unitario, subtotal, notas,
+                creado_en, COALESCE(cocina_entregado, 0) AS cocina_entregado
          FROM comanda_items
          WHERE comanda_id = ?
          ORDER BY id ASC`,
@@ -2412,11 +2703,13 @@ async function getComandaItems(comandaId) {
         comanda_id: cleanInt(row.comanda_id),
         producto_id: row.producto_id === null ? null : cleanInt(row.producto_id),
         descripcion: String(row.descripcion || ""),
+        categoria: String(row.categoria || ""),
         cantidad: cleanInt(row.cantidad),
         precio_unitario: cleanFloat(row.precio_unitario),
         subtotal: cleanFloat(row.subtotal),
         notas: String(row.notas || ""),
-        creado_en: String(row.creado_en || "")
+        creado_en: String(row.creado_en || ""),
+        cocina_entregado: cleanInt(row.cocina_entregado) === 1 ? 1 : 0
     }));
 }
 
@@ -2434,12 +2727,24 @@ async function recalcTotalDb(db, comandaId) {
 }
 
 async function registerPrintAttempt(comandaId, tipo, contenido) {
+    const orderPrintTypes = ["pedido", "pedido_cocina", "pedido_bebestibles"];
+    const isOrderPrint = orderPrintTypes.includes(tipo);
     const printOrders = (await getSetting("imprimir_pedidos", "1")) === "1";
-    if (["pedido", "pedido_cocina", "pedido_bebestibles"].includes(tipo) && !printOrders) {
+    if (isOrderPrint && !printOrders) {
         return {
             ok: true,
             estado: "omitida",
             detalle: "Impresion de pedidos desactivada en configuracion.",
+            impresion_id: null
+        };
+    }
+
+    const printerName = await resolvePrinterNameForTipo(tipo);
+    if (isOrderPrint && !String(printerName || "").trim()) {
+        return {
+            ok: true,
+            estado: "omitida",
+            detalle: "Impresion automatica de pedidos activa, pero sin impresora configurada.",
             impresion_id: null
         };
     }
@@ -2450,7 +2755,6 @@ async function registerPrintAttempt(comandaId, tipo, contenido) {
         [comandaId, tipo, "pendiente", "Pendiente de envio al servicio local.", nowTs()]
     );
     const impresionId = cleanInt(insert.insertId);
-    const printerName = await resolvePrinterNameForTipo(tipo);
     const paperWidthMm = await ticketPaperWidthMm();
     const charsWidth = await ticketCharsWidth();
     const fontSizePt = await ticketFontSizePt();
@@ -2764,7 +3068,8 @@ function buildFinalTicket(localName, charsWidth, mesaNumero, comandaId, items, t
 async function getChargeConfigPayload() {
     return {
         propina_habilitada: await isTipEnabled(),
-        propina_porcentaje: await tipSuggestedPercent()
+        propina_porcentaje: await tipSuggestedPercent(),
+        mesas_cantidad: await configuredTableCount()
     };
 }
 
@@ -2819,7 +3124,10 @@ function defaultCashSummary(montoInicial) {
         transferencia_cantidad: 0,
         otros_total: 0,
         otros_cantidad: 0,
-        efectivo_esperado: cleanFloat(montoInicial)
+        efectivo_esperado: cleanFloat(montoInicial),
+        propinas_total: 0,
+        propinas_cantidad: 0,
+        propinas_por_mesero: []
     };
 }
 
@@ -2835,6 +3143,7 @@ async function getCashSessionSummary(sessionId) {
     );
 
     const salesKeys = new Set();
+    const comandaIds = new Set();
     let fallbackSaleIndex = 0;
     for (const row of rows) {
         const amount = cleanFloat(row.monto);
@@ -2844,6 +3153,7 @@ async function getCashSessionSummary(sessionId) {
         const comandaId = cleanInt(row.comanda_id);
         if (comandaId > 0) {
             salesKeys.add(`c_${comandaId}`);
+            comandaIds.add(comandaId);
         } else {
             fallbackSaleIndex += 1;
             salesKeys.add(`p_${fallbackSaleIndex}`);
@@ -2865,12 +3175,75 @@ async function getCashSessionSummary(sessionId) {
         }
     }
 
+    if (comandaIds.size > 0) {
+        const ids = Array.from(comandaIds);
+        const tipRows = await all(
+            `SELECT c.id, c.propina_monto, c.mesero_id,
+                    u.nombre AS mesero_nombre, u.usuario AS mesero_usuario
+             FROM comandas c
+             LEFT JOIN usuarios u ON u.id = c.mesero_id
+             WHERE c.id IN (${ids.map(() => "?").join(",")})`,
+            ids
+        );
+
+        const tipsByWaiter = {};
+        for (const row of tipRows) {
+            const tipAmount = cleanFloat(row.propina_monto);
+            summary.propinas_total += tipAmount;
+            if (tipAmount > 0) {
+                summary.propinas_cantidad += 1;
+            }
+
+            const meseroId = cleanInt(row.mesero_id);
+            let meseroNombre = String(row.mesero_nombre || "").trim();
+            const meseroUsuario = String(row.mesero_usuario || "").trim();
+            const meseroKey = meseroId > 0 ? `id:${meseroId}` : "sin_mesero";
+            if (!meseroNombre) {
+                meseroNombre = meseroId > 0 ? `Mesero #${meseroId}` : "Sin mesero asignado";
+            }
+
+            if (!tipsByWaiter[meseroKey]) {
+                tipsByWaiter[meseroKey] = {
+                    mesero_id: meseroId,
+                    mesero_nombre: meseroNombre,
+                    mesero_usuario: meseroUsuario,
+                    propina_total: 0,
+                    ventas_cantidad: 0,
+                    ventas_con_propina: 0
+                };
+            }
+            tipsByWaiter[meseroKey].propina_total += tipAmount;
+            tipsByWaiter[meseroKey].ventas_cantidad += 1;
+            if (tipAmount > 0) {
+                tipsByWaiter[meseroKey].ventas_con_propina += 1;
+            }
+        }
+
+        const tipsByWaiterList = Object.values(tipsByWaiter);
+        tipsByWaiterList.sort((a, b) => {
+            const byTip = cleanFloat(b.propina_total) - cleanFloat(a.propina_total);
+            if (byTip !== 0) {
+                return byTip;
+            }
+            return String(a.mesero_nombre || "").localeCompare(String(b.mesero_nombre || ""));
+        });
+        summary.propinas_por_mesero = tipsByWaiterList.map((row) => ({
+            mesero_id: cleanInt(row.mesero_id),
+            mesero_nombre: String(row.mesero_nombre || ""),
+            mesero_usuario: String(row.mesero_usuario || ""),
+            propina_total: cleanFloat(row.propina_total),
+            ventas_cantidad: cleanInt(row.ventas_cantidad),
+            ventas_con_propina: cleanInt(row.ventas_con_propina)
+        }));
+    }
+
     summary.ventas_total = cleanFloat(summary.ventas_total);
     summary.ventas_cantidad = salesKeys.size;
     summary.efectivo_total = cleanFloat(summary.efectivo_total);
     summary.tarjeta_total = cleanFloat(summary.tarjeta_total);
     summary.transferencia_total = cleanFloat(summary.transferencia_total);
     summary.otros_total = cleanFloat(summary.otros_total);
+    summary.propinas_total = cleanFloat(summary.propinas_total);
     summary.efectivo_esperado = cleanFloat(summary.monto_inicial + summary.efectivo_total);
     return summary;
 }
@@ -3102,6 +3475,9 @@ function normalizeRole(role) {
     const value = String(role || "").trim().toLowerCase();
     if (value === "cajero") {
         return "caja";
+    }
+    if (value.normalize("NFD").replace(/[\u0300-\u036f]/g, "") === "garzon") {
+        return "mesero";
     }
     return value;
 }
@@ -3524,24 +3900,31 @@ function printWithOutPrinter(filePath, printerName) {
 
 function execPowerShell(command, timeoutMs) {
     return new Promise((resolve) => {
-        execFile(
-            "powershell.exe",
-            ["-NoProfile", "-Command", command],
-            { windowsHide: true, timeout: timeoutMs || 15000 },
-            (error, stdout, stderr) => {
-                if (error) {
+        try {
+            execFile(
+                "powershell.exe",
+                ["-NoProfile", "-Command", command],
+                { windowsHide: true, timeout: timeoutMs || 15000 },
+                (error, stdout, stderr) => {
+                    if (error) {
+                        resolve({
+                            ok: false,
+                            error: String(stderr || error.message || "Error PowerShell")
+                        });
+                        return;
+                    }
                     resolve({
-                        ok: false,
-                        error: String(stderr || error.message || "Error PowerShell")
+                        ok: true,
+                        stdout: String(stdout || "")
                     });
-                    return;
                 }
-                resolve({
-                    ok: true,
-                    stdout: String(stdout || "")
-                });
-            }
-        );
+            );
+        } catch (error) {
+            resolve({
+                ok: false,
+                error: String((error && error.message) || "No se pudo ejecutar PowerShell.")
+            });
+        }
     });
 }
 
@@ -3572,39 +3955,46 @@ function listPrinters() {
             "$result | ConvertTo-Json -Compress"
         ].join("; ");
 
-        execFile(
-            "powershell.exe",
-            ["-NoProfile", "-Command", command],
-            { windowsHide: true, timeout: 15000 },
-            (error, stdout, stderr) => {
-                if (error) {
-                    resolve({
-                        ok: false,
-                        error: `No se pudo listar impresoras: ${stderr || error.message}`
-                    });
-                    return;
-                }
+        try {
+            execFile(
+                "powershell.exe",
+                ["-NoProfile", "-Command", command],
+                { windowsHide: true, timeout: 15000 },
+                (error, stdout, stderr) => {
+                    if (error) {
+                        resolve({
+                            ok: false,
+                            error: `No se pudo listar impresoras: ${stderr || error.message}`
+                        });
+                        return;
+                    }
 
-                try {
-                    const parsed = JSON.parse(stdout || "{}");
-                    const printers = Array.isArray(parsed.printers)
-                        ? parsed.printers
-                        : parsed.printers
-                            ? [parsed.printers]
-                            : [];
-                    resolve({
-                        ok: true,
-                        printers,
-                        defaultPrinter: parsed.defaultPrinter || ""
-                    });
-                } catch {
-                    resolve({
-                        ok: false,
-                        error: "No se pudo interpretar el listado de impresoras."
-                    });
+                    try {
+                        const parsed = JSON.parse(stdout || "{}");
+                        const printers = Array.isArray(parsed.printers)
+                            ? parsed.printers
+                            : parsed.printers
+                                ? [parsed.printers]
+                                : [];
+                        resolve({
+                            ok: true,
+                            printers,
+                            defaultPrinter: parsed.defaultPrinter || ""
+                        });
+                    } catch {
+                        resolve({
+                            ok: false,
+                            error: "No se pudo interpretar el listado de impresoras."
+                        });
+                    }
                 }
-            }
-        );
+            );
+        } catch (error) {
+            resolve({
+                ok: false,
+                error: `No se pudo listar impresoras: ${String((error && error.message) || "Error desconocido.")}`
+            });
+        }
     });
 }
 
