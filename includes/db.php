@@ -284,14 +284,15 @@ function seed_productos(PDO $pdo): void
         ['nombre' => 'Pastel de Choclo', 'categoria' => 'Platos', 'precio' => 6200],
         ['nombre' => 'Porotos Granados', 'categoria' => 'Platos', 'precio' => 5900],
         ['nombre' => 'Carbonada', 'categoria' => 'Platos', 'precio' => 6100],
-        ['nombre' => 'Empanada de Pino', 'categoria' => 'Entradas', 'precio' => 2200],
-        ['nombre' => 'Humita', 'categoria' => 'Entradas', 'precio' => 2500],
-        ['nombre' => 'Ensalada Chilena', 'categoria' => 'Entradas', 'precio' => 2800],
+        ['nombre' => 'Empanada de Pino', 'categoria' => 'Platos', 'precio' => 2200],
+        ['nombre' => 'Humita', 'categoria' => 'Platos', 'precio' => 2500],
+        ['nombre' => 'Ensalada Chilena', 'categoria' => 'Platos', 'precio' => 2800],
         ['nombre' => 'Jugo Natural', 'categoria' => 'Bebidas', 'precio' => 1800],
         ['nombre' => 'Bebida 350ml', 'categoria' => 'Bebidas', 'precio' => 1500],
         ['nombre' => 'Agua Mineral', 'categoria' => 'Bebidas', 'precio' => 1300],
-        ['nombre' => 'Leche Asada', 'categoria' => 'Postres', 'precio' => 2600],
-        ['nombre' => 'Mote con Huesillos', 'categoria' => 'Postres', 'precio' => 2900],
+        ['nombre' => 'Ensalada', 'categoria' => 'Agregados', 'precio' => 0],
+        ['nombre' => 'Arroz', 'categoria' => 'Agregados', 'precio' => 0],
+        ['nombre' => 'Papas Fritas', 'categoria' => 'Agregados', 'precio' => 0],
     ];
 
     $insert = $pdo->prepare(

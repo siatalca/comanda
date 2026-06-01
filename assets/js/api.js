@@ -278,6 +278,14 @@
                 }
             });
         },
+        removeComandaItem: async function (itemId) {
+            return request("comanda_item_remove", {
+                method: "POST",
+                body: {
+                    item_id: itemId
+                }
+            });
+        },
         money
     };
 })();

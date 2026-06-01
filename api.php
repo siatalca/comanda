@@ -226,6 +226,11 @@ function handle_post(PDO $pdo, string $action): void
             required_fields($body, ['mesa_numero']);
             process_print_bill($pdo, $body);
             break;
+        case 'comanda_item_remove':
+            require_operation_roles($pdo);
+            required_fields($body, ['item_id']);
+            process_remove_comanda_item($pdo, $body);
+            break;
         case 'cocina_item_estado':
             require_kitchen_roles($pdo);
             required_fields($body, ['item_id', 'entregado']);
@@ -1386,8 +1391,16 @@ function normalize_product_category_label(string $category): string
         return 'Bebidas';
     }
 
-    if (strpos($token, 'post') !== false || strpos($token, 'dulce') !== false || strpos($token, 'helad') !== false || strpos($token, 'torta') !== false) {
-        return 'Postres';
+    if (
+        strpos($token, 'agreg') !== false
+        || strpos($token, 'acompan') !== false
+        || strpos($token, 'guarn') !== false
+        || strpos($token, 'post') !== false
+        || strpos($token, 'dulce') !== false
+        || strpos($token, 'helad') !== false
+        || strpos($token, 'torta') !== false
+    ) {
+        return 'Agregados';
     }
 
     return 'Platos';
@@ -2386,6 +2399,144 @@ function process_print_bill(PDO $pdo, array $body): void
         'ok' => true,
         'mensaje' => 'Precuenta enviada a impresion.',
         'impresion' => $print,
+    ]);
+}
+
+function process_remove_comanda_item(PDO $pdo, array $body): void
+{
+    $user = require_operation_roles($pdo);
+    ensure_comanda_waiter_schema($pdo);
+
+    $userId = clean_int($user['id'] ?? 0);
+    $role = strtolower(trim((string) ($user['rol'] ?? '')));
+    if ($role === 'garzon') {
+        $role = 'mesero';
+    }
+    if ($role === 'cajero') {
+        $role = 'caja';
+    }
+    if (!in_array($role, ['mesero', 'admin'], true)) {
+        json_response([
+            'ok' => false,
+            'error' => 'Solo mesero/admin puede quitar items de la cuenta.',
+        ], 403);
+    }
+
+    $itemId = clean_int($body['item_id'] ?? 0);
+    if ($itemId <= 0) {
+        json_response([
+            'ok' => false,
+            'error' => 'Item invalido.',
+        ], 422);
+    }
+
+    $find = $pdo->prepare(
+        'SELECT ci.id, ci.comanda_id, c.mesa_id, c.mesero_id, m.numero AS mesa_numero
+         FROM comanda_items ci
+         INNER JOIN comandas c ON c.id = ci.comanda_id
+         INNER JOIN mesas m ON m.id = c.mesa_id
+         WHERE ci.id = :item_id
+           AND c.estado = :estado
+         LIMIT 1'
+    );
+    $find->execute([
+        ':item_id' => $itemId,
+        ':estado' => 'abierta',
+    ]);
+    $row = $find->fetch();
+    if (!$row) {
+        json_response([
+            'ok' => false,
+            'error' => 'El item no existe o la comanda ya esta cerrada.',
+        ], 404);
+    }
+
+    $ownerMeseroId = clean_int($row['mesero_id'] ?? 0);
+    if ($role === 'mesero' && $ownerMeseroId > 0 && $ownerMeseroId !== $userId) {
+        json_response([
+            'ok' => false,
+            'error' => 'No puedes modificar una comanda asignada a otro mesero.',
+        ], 403);
+    }
+
+    $comandaId = clean_int($row['comanda_id'] ?? 0);
+    $mesaId = clean_int($row['mesa_id'] ?? 0);
+    $mesaNumero = clean_int($row['mesa_numero'] ?? 0);
+    if ($comandaId <= 0 || $mesaId <= 0 || $mesaNumero <= 0) {
+        json_response([
+            'ok' => false,
+            'error' => 'No se pudo resolver la comanda del item.',
+        ], 422);
+    }
+
+    $totalComanda = 0.0;
+    $comandaClosed = false;
+
+    $pdo->beginTransaction();
+    try {
+        $deleteItem = $pdo->prepare('DELETE FROM comanda_items WHERE id = :id');
+        $deleteItem->execute([':id' => $itemId]);
+
+        $totalComanda = recalc_total($pdo, $comandaId);
+        $now = now_ts();
+
+        if ($totalComanda > 0) {
+            $updateComanda = $pdo->prepare(
+                'UPDATE comandas
+                 SET total = :total,
+                     cocina_lista = 0,
+                     actualizada_en = :actualizada_en
+                 WHERE id = :id'
+            );
+            $updateComanda->execute([
+                ':total' => $totalComanda,
+                ':actualizada_en' => $now,
+                ':id' => $comandaId,
+            ]);
+        } else {
+            $closeComanda = $pdo->prepare(
+                'UPDATE comandas
+                 SET estado = :estado,
+                     total = :total,
+                     propina_monto = :propina_monto,
+                     cocina_lista = 0,
+                     actualizada_en = :actualizada_en,
+                     cerrada_en = :cerrada_en
+                 WHERE id = :id'
+            );
+            $closeComanda->execute([
+                ':estado' => 'cerrada',
+                ':total' => 0,
+                ':propina_monto' => 0,
+                ':actualizada_en' => $now,
+                ':cerrada_en' => $now,
+                ':id' => $comandaId,
+            ]);
+
+            $freeMesa = $pdo->prepare('UPDATE mesas SET estado = :estado, actualizada_en = :actualizada_en WHERE id = :id');
+            $freeMesa->execute([
+                ':estado' => 'libre',
+                ':actualizada_en' => $now,
+                ':id' => $mesaId,
+            ]);
+            $comandaClosed = true;
+        }
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
+
+    json_response([
+        'ok' => true,
+        'mensaje' => $comandaClosed ? 'Item eliminado y comanda cerrada.' : 'Item eliminado de la cuenta.',
+        'mesa_numero' => $mesaNumero,
+        'comanda_cerrada' => $comandaClosed ? 1 : 0,
+        'total' => $totalComanda,
+        'data' => get_comanda_snapshot($pdo, $mesaNumero),
     ]);
 }
 

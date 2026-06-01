@@ -1,0 +1,13 @@
+{
+  "startServer": true,
+  "appUrl": "http://127.0.0.1:3003/login.html",
+  "appPort": 3003,
+  "appHost": "0.0.0.0",
+  "dbHost": "comanda.mi-registro.cl",
+  "dbPort": 3306,
+  "dbUser": "comanda_user",
+  "dbPass": "cambiar-por-clave",
+  "dbName": "comanda",
+  "dbCharset": "utf8mb4",
+  "dbCollation": "utf8mb4_unicode_ci"
+}

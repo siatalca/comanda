@@ -330,14 +330,15 @@ async function seedProductos() {
         ["Pastel de Choclo", "Platos", 6200],
         ["Porotos Granados", "Platos", 5900],
         ["Carbonada", "Platos", 6100],
-        ["Empanada de Pino", "Entradas", 2200],
-        ["Humita", "Entradas", 2500],
-        ["Ensalada Chilena", "Entradas", 2800],
+        ["Empanada de Pino", "Platos", 2200],
+        ["Humita", "Platos", 2500],
+        ["Ensalada Chilena", "Platos", 2800],
         ["Jugo Natural", "Bebidas", 1800],
         ["Bebida 350ml", "Bebidas", 1500],
         ["Agua Mineral", "Bebidas", 1300],
-        ["Leche Asada", "Postres", 2600],
-        ["Mote con Huesillos", "Postres", 2900]
+        ["Ensalada", "Agregados", 0],
+        ["Arroz", "Agregados", 0],
+        ["Papas Fritas", "Agregados", 0]
     ];
 
     for (const item of productos) {
@@ -752,6 +753,11 @@ async function handleApiPost(req, res, action) {
         await requireOperationRoles(req, res);
         requiredFields(body, ["mesa_numero"]);
         await processPrintBill(req, res, body);
+        return;
+    case "comanda_item_remove":
+        await requireOperationRoles(req, res);
+        requiredFields(body, ["item_id"]);
+        await processRemoveComandaItem(req, res, body);
         return;
     case "cocina_item_estado":
         await requireKitchenRoles(req, res);
@@ -1488,6 +1494,100 @@ async function processPrintBill(req, res, body) {
         ok: true,
         mensaje: "Precuenta enviada a impresion.",
         impresion: print
+    });
+}
+
+async function processRemoveComandaItem(req, res, body) {
+    const user = await requireOperationRoles(req, res);
+    const userId = cleanInt(user && user.id ? user.id : 0);
+    const role = normalizeRole(String(user && user.rol ? user.rol : ""));
+    if (!["mesero", "admin"].includes(role)) {
+        throwHttp(403, "Solo mesero/admin puede quitar items de la cuenta.");
+    }
+
+    const itemId = cleanInt(body.item_id);
+    if (itemId <= 0) {
+        throwHttp(422, "Item invalido.");
+    }
+
+    const row = await one(
+        `SELECT ci.id, ci.comanda_id, c.mesa_id, c.mesero_id, m.numero AS mesa_numero
+         FROM comanda_items ci
+         INNER JOIN comandas c ON c.id = ci.comanda_id
+         INNER JOIN mesas m ON m.id = c.mesa_id
+         WHERE ci.id = ?
+           AND c.estado = 'abierta'
+         LIMIT 1`,
+        [itemId]
+    );
+    if (!row) {
+        throwHttp(404, "El item no existe o la comanda ya esta cerrada.");
+    }
+
+    const ownerMeseroId = cleanInt(row.mesero_id);
+    if (role === "mesero" && ownerMeseroId > 0 && ownerMeseroId !== userId) {
+        throwHttp(403, "No puedes modificar una comanda asignada a otro mesero.");
+    }
+
+    const comandaId = cleanInt(row.comanda_id);
+    const mesaId = cleanInt(row.mesa_id);
+    const mesaNumero = cleanInt(row.mesa_numero);
+    if (comandaId <= 0 || mesaId <= 0 || mesaNumero <= 0) {
+        throwHttp(422, "No se pudo resolver la comanda del item.");
+    }
+
+    let totalComanda = 0;
+    let comandaClosed = false;
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        await conn.execute("DELETE FROM comanda_items WHERE id = ?", [itemId]);
+        totalComanda = await recalcTotalDb(conn, comandaId);
+        const now = nowTs();
+
+        if (totalComanda > 0) {
+            await conn.execute(
+                `UPDATE comandas
+                 SET total = ?,
+                     cocina_lista = 0,
+                     actualizada_en = ?
+                 WHERE id = ?`,
+                [totalComanda, now, comandaId]
+            );
+        } else {
+            await conn.execute(
+                `UPDATE comandas
+                 SET estado = ?,
+                     total = ?,
+                     propina_monto = ?,
+                     cocina_lista = 0,
+                     actualizada_en = ?,
+                     cerrada_en = ?
+                 WHERE id = ?`,
+                ["cerrada", 0, 0, now, now, comandaId]
+            );
+            await conn.execute(
+                "UPDATE mesas SET estado = ?, actualizada_en = ? WHERE id = ?",
+                ["libre", now, mesaId]
+            );
+            comandaClosed = true;
+        }
+
+        await conn.commit();
+    } catch (error) {
+        await conn.rollback();
+        throw error;
+    } finally {
+        conn.release();
+    }
+
+    jsonResponse(res, 200, {
+        ok: true,
+        mensaje: comandaClosed ? "Item eliminado y comanda cerrada." : "Item eliminado de la cuenta.",
+        mesa_numero: mesaNumero,
+        comanda_cerrada: comandaClosed ? 1 : 0,
+        total: totalComanda,
+        data: await getComandaSnapshot(mesaNumero)
     });
 }
 
@@ -3450,11 +3550,16 @@ function normalizeProductCategoryLabel(category) {
     if (token.includes("beb") || ["jugo", "jugos", "refresco", "refrescos", "gaseosa", "gaseosas", "agua", "aguamineral"].includes(token)) {
         return "Bebidas";
     }
-    if (token.includes("post") || token.includes("dulce") || token.includes("helad") || token.includes("torta")) {
-        return "Postres";
-    }
-    if (token.includes("entrada")) {
-        return "Entradas";
+    if (
+        token.includes("agreg")
+        || token.includes("acompan")
+        || token.includes("guarn")
+        || token.includes("post")
+        || token.includes("dulce")
+        || token.includes("helad")
+        || token.includes("torta")
+    ) {
+        return "Agregados";
     }
     return "Platos";
 }

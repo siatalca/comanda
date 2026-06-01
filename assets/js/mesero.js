@@ -15,6 +15,7 @@
         cashOpen: true,
         productsById: new Map(),
         cart: new Map(),
+        plateSidesByProductId: new Map(),
         mesas: [],
         timer: null,
         kitchenReadyByComanda: new Map(),
@@ -145,13 +146,7 @@
                     return;
                 }
 
-                if (button.dataset.action === "inc") {
-                    setQty(id, getQty(id) + 1);
-                }
-
-                if (button.dataset.action === "dec") {
-                    setQty(id, getQty(id) - 1);
-                }
+                handleMenuQtyAction(id, String(button.dataset.action || "").trim());
             });
         }
 
@@ -163,10 +158,24 @@
                 }
                 const id = Number(button.dataset.remove || 0);
                 if (id) {
-                    state.cart.delete(id);
+                    clearCartItem(id);
                     renderCart();
                     renderMenu();
                 }
+            });
+        }
+
+        if (refs.comandaItems) {
+            refs.comandaItems.addEventListener("click", (event) => {
+                const button = event.target.closest("button[data-comanda-remove]");
+                if (!button) {
+                    return;
+                }
+                const itemId = Number(button.dataset.comandaRemove || 0);
+                if (itemId <= 0) {
+                    return;
+                }
+                void removeComandaItem(itemId);
             });
         }
 
@@ -258,6 +267,7 @@
         state.viewMode = "pedido";
         if (changedMesa) {
             state.cart.clear();
+            state.plateSidesByProductId.clear();
             renderCart();
             renderMenu();
         }
@@ -279,8 +289,24 @@
 
             const currentEntries = [...state.cart.keys()];
             currentEntries.forEach((productId) => {
-                if (!state.productsById.has(Number(productId))) {
-                    state.cart.delete(Number(productId));
+                const normalizedId = Number(productId);
+                if (!state.productsById.has(normalizedId)) {
+                    clearCartItem(normalizedId);
+                    return;
+                }
+
+                const product = state.productsById.get(normalizedId);
+                if (!isPlateItem(product)) {
+                    state.plateSidesByProductId.delete(normalizedId);
+                    return;
+                }
+
+                const qty = getQty(normalizedId);
+                const trimmed = getPlateSides(normalizedId).slice(0, Math.max(0, qty));
+                if (trimmed.length === 0) {
+                    state.plateSidesByProductId.delete(normalizedId);
+                } else {
+                    state.plateSidesByProductId.set(normalizedId, trimmed);
                 }
             });
 
@@ -653,6 +679,231 @@
             || ["jugo", "jugos", "refresco", "refrescos", "gaseosa", "gaseosas", "agua", "aguamineral"].includes(token);
     }
 
+    function normalizeMenuCategoryLabel(category) {
+        const token = normalizeCategoryToken(category);
+        if (!token) {
+            return "Platos";
+        }
+        if (token.includes("beb") || ["jugo", "jugos", "refresco", "refrescos", "gaseosa", "gaseosas", "agua", "aguamineral"].includes(token)) {
+            return "Bebidas";
+        }
+        if (token.includes("agreg")
+            || token.includes("acompan")
+            || token.includes("guarn")
+            || token.includes("post")
+            || token.includes("dulce")
+            || token.includes("helad")
+            || token.includes("torta")) {
+            return "Agregados";
+        }
+        return "Platos";
+    }
+
+    function isPlateItem(item) {
+        const category = String(item && item.categoria ? item.categoria : "").trim();
+        return normalizeMenuCategoryLabel(category) === "Platos";
+    }
+
+    function isAddonCategory(category) {
+        return normalizeMenuCategoryLabel(category) === "Agregados";
+    }
+
+    function isAddonItem(item) {
+        const category = String(item && item.categoria ? item.categoria : "").trim();
+        return isAddonCategory(category);
+    }
+
+    function getAddonProducts() {
+        const list = [];
+        const seen = new Set();
+
+        Object.entries(state.menu || {}).forEach(([groupCategory, products]) => {
+            const groupIsAddon = isAddonCategory(groupCategory);
+            (Array.isArray(products) ? products : []).forEach((product) => {
+                if (!product || typeof product !== "object") {
+                    return;
+                }
+                const productId = Number(product.id || 0);
+                if (productId <= 0 || seen.has(productId)) {
+                    return;
+                }
+                if (!groupIsAddon && !isAddonItem(product)) {
+                    return;
+                }
+                seen.add(productId);
+                list.push({
+                    id: productId,
+                    nombre: String(product.nombre || "").trim(),
+                    precio: Number(product.precio || 0)
+                });
+            });
+        });
+
+        return list.sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
+    }
+
+    function getPlateSides(productId) {
+        const sides = state.plateSidesByProductId.get(Number(productId));
+        if (!Array.isArray(sides)) {
+            return [];
+        }
+        return sides
+            .map((value) => String(value || "").trim())
+            .filter((value) => value !== "");
+    }
+
+    function summarizePlateSides(productId, qty) {
+        const expected = Math.max(0, Number(qty || 0));
+        if (expected <= 0) {
+            return "";
+        }
+
+        const assigned = getPlateSides(productId).slice(0, expected);
+        if (assigned.length === 0) {
+            return "Agregado pendiente.";
+        }
+
+        if (assigned.length < expected) {
+            const missing = expected - assigned.length;
+            return `Agregados asignados: ${assigned.length}/${expected}. Faltan ${missing}.`;
+        }
+
+        const counters = new Map();
+        assigned.forEach((name) => {
+            const key = String(name || "").trim();
+            counters.set(key, Number(counters.get(key) || 0) + 1);
+        });
+
+        const parts = [...counters.entries()].map(([name, count]) => (
+            count > 1 ? `${name} (${count})` : name
+        ));
+        return `Agregados: ${parts.join(", ")}`;
+    }
+
+    function buildAddonPromptText(productName, addonProducts) {
+        const lines = addonProducts.map((item, index) => `${index + 1}. ${item.nombre}`);
+        return [
+            `Selecciona el agregado para "${productName}".`,
+            "Escribe el numero o el nombre exacto.",
+            "",
+            ...lines
+        ].join("\n");
+    }
+
+    function promptAddonForPlate(product) {
+        const productName = String(product && product.nombre ? product.nombre : "plato").trim() || "plato";
+        const addonProducts = getAddonProducts();
+        if (addonProducts.length === 0) {
+            const manualValue = window.prompt(`No hay agregados configurados. Escribe el agregado para "${productName}":`, "");
+            if (manualValue === null) {
+                return null;
+            }
+            const cleanedManual = String(manualValue || "").trim();
+            if (!cleanedManual) {
+                toast("Debes indicar un agregado para el plato.", "error");
+                return null;
+            }
+            return cleanedManual;
+        }
+
+        const promptText = buildAddonPromptText(productName, addonProducts);
+        while (true) {
+            const answer = window.prompt(promptText, "1");
+            if (answer === null) {
+                return null;
+            }
+
+            const cleaned = String(answer || "").trim();
+            if (!cleaned) {
+                window.alert("Debes indicar un agregado.");
+                continue;
+            }
+
+            const asNumber = Number.parseInt(cleaned, 10);
+            if (Number.isInteger(asNumber) && asNumber >= 1 && asNumber <= addonProducts.length) {
+                return addonProducts[asNumber - 1].nombre;
+            }
+
+            const normalized = normalizeCategoryToken(cleaned);
+            const found = addonProducts.find((item) => normalizeCategoryToken(item.nombre) === normalized);
+            if (found) {
+                return found.nombre;
+            }
+
+            window.alert("Agregado invalido. Escribe un numero o nombre de la lista.");
+        }
+    }
+
+    function clearCartItem(productId) {
+        const normalizedId = Number(productId || 0);
+        if (normalizedId <= 0) {
+            return;
+        }
+        state.cart.delete(normalizedId);
+        state.plateSidesByProductId.delete(normalizedId);
+    }
+
+    function handleMenuQtyAction(productId, action) {
+        const normalizedId = Number(productId || 0);
+        if (normalizedId <= 0) {
+            return;
+        }
+
+        const product = state.productsById.get(normalizedId);
+        if (!product) {
+            return;
+        }
+
+        if (action === "inc") {
+            if (isAddonItem(product)) {
+                toast("Los agregados se asignan al elegir un plato.", "error");
+                return;
+            }
+            if (isPlateItem(product)) {
+                const selectedAddon = promptAddonForPlate(product);
+                if (!selectedAddon) {
+                    return;
+                }
+                const currentSides = getPlateSides(normalizedId);
+                currentSides.push(selectedAddon);
+                state.plateSidesByProductId.set(normalizedId, currentSides);
+                state.cart.set(normalizedId, getQty(normalizedId) + 1);
+                renderMenu();
+                renderCart();
+                return;
+            }
+
+            setQty(normalizedId, getQty(normalizedId) + 1);
+            return;
+        }
+
+        if (action === "dec") {
+            if (isPlateItem(product)) {
+                const currentQty = getQty(normalizedId);
+                if (currentQty <= 0) {
+                    return;
+                }
+                const nextQty = currentQty - 1;
+                if (nextQty <= 0) {
+                    clearCartItem(normalizedId);
+                } else {
+                    state.cart.set(normalizedId, nextQty);
+                    const currentSides = getPlateSides(normalizedId).slice(0, nextQty);
+                    if (currentSides.length === 0) {
+                        state.plateSidesByProductId.delete(normalizedId);
+                    } else {
+                        state.plateSidesByProductId.set(normalizedId, currentSides);
+                    }
+                }
+                renderMenu();
+                renderCart();
+                return;
+            }
+
+            setQty(normalizedId, getQty(normalizedId) - 1);
+        }
+    }
+
     function normalizeCategoryToken(value) {
         return String(value || "")
             .toLowerCase()
@@ -901,8 +1152,8 @@
             return;
         }
 
-        const categories = Object.entries(state.menu || {});
-        if (categories.length === 0) {
+        const allCategories = Object.entries(state.menu || {});
+        if (allCategories.length === 0) {
             const info = state.dailyMenuInfo || {};
             const fecha = escapeHtml(info.fecha || "");
             const confirmado = Number(info.confirmado || 0) === 1;
@@ -924,7 +1175,18 @@
             return;
         }
 
-        refs.menuMount.innerHTML = categories
+        const categories = allCategories.filter(([categoria]) => !isAddonCategory(categoria));
+        if (categories.length === 0) {
+            refs.menuMount.innerHTML = `<p class="empty-state">No hay platos o bebestibles disponibles.</p>`;
+            return;
+        }
+
+        const addonProducts = getAddonProducts();
+        const addonsLabel = addonProducts.length > 0
+            ? `<p class="muted">Agregados disponibles para platos: ${escapeHtml(addonProducts.map((item) => item.nombre).join(", "))}</p>`
+            : `<p class="muted">No hay agregados configurados. Al agregar plato se pedira ingresarlo manualmente.</p>`;
+
+        refs.menuMount.innerHTML = `${addonsLabel}${categories
             .map(([categoria, products]) => {
                 const cards = products
                     .map((product) => {
@@ -953,7 +1215,7 @@
                     </section>
                 `;
             })
-            .join("");
+            .join("")}`;
     }
 
     function getQty(productId) {
@@ -963,9 +1225,9 @@
     function setQty(productId, qty) {
         const next = Math.max(0, Number(qty || 0));
         if (next <= 0) {
-            state.cart.delete(productId);
+            clearCartItem(productId);
         } else {
-            state.cart.set(productId, next);
+            state.cart.set(Number(productId), next);
         }
         renderMenu();
         renderCart();
@@ -991,11 +1253,14 @@
                     return "";
                 }
                 const subtotal = Number(product.precio) * Number(qty);
+                const sideSummary = isPlateItem(product) ? summarizePlateSides(id, qty) : "";
+                const sideHtml = sideSummary ? `<small>${escapeHtml(sideSummary)}</small>` : "";
                 return `
                     <div class="cart-item">
                         <div>
                             <strong>${escapeHtml(product.nombre)}</strong>
                             <small>${qty} x ${api.money(product.precio)}</small>
+                            ${sideHtml}
                         </div>
                         <div class="cart-item-right">
                             <strong>${api.money(subtotal)}</strong>
@@ -1036,19 +1301,26 @@
         }
 
         const items = snapshot.items || [];
+        const canRemove = canRemoveComandaItems();
         if (items.length === 0) {
             refs.comandaItems.innerHTML = `<p class="empty-state">Sin items cargados.</p>`;
         } else {
             refs.comandaItems.innerHTML = items
                 .map((item) => {
                     const nota = item.notas ? `<small>Nota: ${escapeHtml(item.notas)}</small>` : "";
+                    const removeAction = canRemove
+                        ? `<button type="button" class="btn-link" data-comanda-remove="${Number(item.id || 0)}">Quitar</button>`
+                        : "";
                     return `
                         <div class="comanda-item">
                             <div>
                                 <strong>${item.cantidad} x ${escapeHtml(item.descripcion)}</strong>
                                 ${nota}
                             </div>
-                            <strong>${api.money(item.subtotal)}</strong>
+                            <div class="cart-item-right">
+                                <strong>${api.money(item.subtotal)}</strong>
+                                ${removeAction}
+                            </div>
                         </div>
                     `;
                 })
@@ -1056,6 +1328,49 @@
         }
 
         refs.comandaTotal.textContent = api.money(snapshot.comanda.total || 0);
+    }
+
+    async function removeComandaItem(itemId) {
+        const roleAllowed = canRemoveComandaItems();
+        if (!roleAllowed) {
+            toast("No tienes permisos para quitar items de la cuenta.", "error");
+            return;
+        }
+
+        const mesaNumero = Number(state.mesaNumero || 0);
+        if (mesaNumero <= 0) {
+            toast("Selecciona una mesa primero.", "error");
+            return;
+        }
+
+        const normalizedId = Number(itemId || 0);
+        if (normalizedId <= 0) {
+            return;
+        }
+
+        const confirmed = window.confirm("Se quitara este producto de la cuenta. Deseas continuar?");
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            const response = await api.removeComandaItem(normalizedId);
+            if (response && response.data) {
+                renderComanda(response.data);
+            } else {
+                await refreshComanda(true);
+            }
+            await loadMesas(true);
+            paintMesaStatus();
+            toast(response && response.mensaje ? response.mensaje : "Producto eliminado de la cuenta.");
+        } catch (error) {
+            toast(error.message, "error");
+        }
+    }
+
+    function canRemoveComandaItems() {
+        const role = normalizeRole(state.currentUser ? state.currentUser.rol : "");
+        return role === "mesero" || role === "admin";
     }
 
     async function sendOrder() {
@@ -1067,10 +1382,41 @@
             return;
         }
 
-        const items = [...state.cart.entries()].map(([productId, qty]) => ({
-            producto_id: Number(productId),
-            cantidad: Number(qty)
-        }));
+        const items = [];
+        for (const [productId, qtyValue] of state.cart.entries()) {
+            const normalizedId = Number(productId || 0);
+            const qty = Number(qtyValue || 0);
+            if (normalizedId <= 0 || qty <= 0) {
+                continue;
+            }
+
+            const product = state.productsById.get(normalizedId);
+            if (!product) {
+                continue;
+            }
+
+            if (isPlateItem(product)) {
+                const sides = getPlateSides(normalizedId).slice(0, qty);
+                if (sides.length < qty) {
+                    toast(`Faltan agregados para ${product.nombre}.`, "error");
+                    return;
+                }
+
+                for (let i = 0; i < qty; i += 1) {
+                    items.push({
+                        producto_id: normalizedId,
+                        cantidad: 1,
+                        notas: `Agregado: ${sides[i]}`
+                    });
+                }
+                continue;
+            }
+
+            items.push({
+                producto_id: normalizedId,
+                cantidad: qty
+            });
+        }
 
         if (items.length === 0) {
             toast("Agrega al menos un producto.", "error");
@@ -1083,6 +1429,7 @@
         try {
             const response = await api.sendOrder(mesaNumero, items, "movil");
             state.cart.clear();
+            state.plateSidesByProductId.clear();
             renderCart();
             renderMenu();
             await loadMesas(true);

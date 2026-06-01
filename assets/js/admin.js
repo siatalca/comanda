@@ -430,12 +430,19 @@
     }
 
     function normalizeProductCategory(category) {
-        const value = String(category || "").toLowerCase();
+        const value = String(category || "")
+            .toLowerCase()
+            .trim()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "");
         if (value.includes("beb")) {
             return "Bebidas";
         }
-        if (value.includes("post")) {
-            return "Postres";
+        if (value.includes("agreg") || value.includes("acompan") || value.includes("guarn")) {
+            return "Agregados";
+        }
+        if (value.includes("post") || value.includes("dulce") || value.includes("helad") || value.includes("torta")) {
+            return "Agregados";
         }
         return "Platos";
     }

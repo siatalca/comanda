@@ -1,15 +1,19 @@
-﻿{
+{
   "name": "comanda-node",
   "version": "1.0.0",
   "private": true,
   "description": "Backend Node.js para Comanda (API + impresion + frontend estatico)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "desktop": "electron electron/main.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "express": "^4.21.2",
     "mysql2": "^3.14.5"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7"
   }
 }

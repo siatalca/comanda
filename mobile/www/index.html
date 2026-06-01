@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Comanda Movil</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <main class="card">
+        <h1>Comanda Movil</h1>
+        <p class="subtitle">Ingresa la URL del servidor del PC en tu red local.</p>
+
+        <label for="serverUrl">URL del servidor</label>
+        <input
+            id="serverUrl"
+            type="url"
+            placeholder="http://192.168.0.15:3003/login.html"
+            autocomplete="off"
+            spellcheck="false"
+        >
+
+        <button id="connectButton" type="button">Conectar</button>
+        <button id="resetButton" type="button" class="secondary">Cambiar URL guardada</button>
+
+        <p id="status" class="status"></p>
+        <p class="hint">Tip: usa la IP del PC donde corre <code>node server.js</code>.</p>
+    </main>
+
+    <script src="./app.js"></script>
+</body>
+</html>
