@@ -15,7 +15,7 @@
         cashOpen: true,
         productsById: new Map(),
         cart: new Map(),
-        plateSidesByProductId: new Map(),
+        plateConfigsByProductId: new Map(),
         mesas: [],
         timer: null,
         kitchenReadyByComanda: new Map(),
@@ -267,7 +267,7 @@
         state.viewMode = "pedido";
         if (changedMesa) {
             state.cart.clear();
-            state.plateSidesByProductId.clear();
+            state.plateConfigsByProductId.clear();
             renderCart();
             renderMenu();
         }
@@ -297,16 +297,16 @@
 
                 const product = state.productsById.get(normalizedId);
                 if (!isPlateItem(product)) {
-                    state.plateSidesByProductId.delete(normalizedId);
+                    state.plateConfigsByProductId.delete(normalizedId);
                     return;
                 }
 
                 const qty = getQty(normalizedId);
-                const trimmed = getPlateSides(normalizedId).slice(0, Math.max(0, qty));
+                const trimmed = getPlateConfigs(normalizedId).slice(0, Math.max(0, qty));
                 if (trimmed.length === 0) {
-                    state.plateSidesByProductId.delete(normalizedId);
+                    state.plateConfigsByProductId.delete(normalizedId);
                 } else {
-                    state.plateSidesByProductId.set(normalizedId, trimmed);
+                    state.plateConfigsByProductId.set(normalizedId, trimmed);
                 }
             });
 
@@ -687,6 +687,9 @@
         if (token.includes("beb") || ["jugo", "jugos", "refresco", "refrescos", "gaseosa", "gaseosas", "agua", "aguamineral"].includes(token)) {
             return "Bebidas";
         }
+        if (token.includes("extra") || token.includes("adic") || token.includes("complement")) {
+            return "Extras";
+        }
         if (token.includes("agreg")
             || token.includes("acompan")
             || token.includes("guarn")
@@ -708,17 +711,32 @@
         return normalizeMenuCategoryLabel(category) === "Agregados";
     }
 
+    function isExtraCategory(category) {
+        return normalizeMenuCategoryLabel(category) === "Extras";
+    }
+
+    function isAddonOrExtraCategory(category) {
+        const normalized = normalizeMenuCategoryLabel(category);
+        return normalized === "Agregados" || normalized === "Extras";
+    }
+
     function isAddonItem(item) {
         const category = String(item && item.categoria ? item.categoria : "").trim();
         return isAddonCategory(category);
     }
 
-    function getAddonProducts() {
+    function isExtraItem(item) {
+        const category = String(item && item.categoria ? item.categoria : "").trim();
+        return isExtraCategory(category);
+    }
+
+    function getProductsByCategory(categoryLabel) {
         const list = [];
         const seen = new Set();
 
         Object.entries(state.menu || {}).forEach(([groupCategory, products]) => {
-            const groupIsAddon = isAddonCategory(groupCategory);
+            const normalizedGroup = normalizeMenuCategoryLabel(groupCategory);
+            const groupMatches = normalizedGroup === categoryLabel;
             (Array.isArray(products) ? products : []).forEach((product) => {
                 if (!product || typeof product !== "object") {
                     return;
@@ -727,7 +745,8 @@
                 if (productId <= 0 || seen.has(productId)) {
                     return;
                 }
-                if (!groupIsAddon && !isAddonItem(product)) {
+                const normalizedProduct = normalizeMenuCategoryLabel(product.categoria);
+                if (!groupMatches && normalizedProduct !== categoryLabel) {
                     return;
                 }
                 seen.add(productId);
@@ -742,42 +761,65 @@
         return list.sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
     }
 
-    function getPlateSides(productId) {
-        const sides = state.plateSidesByProductId.get(Number(productId));
-        if (!Array.isArray(sides)) {
-            return [];
-        }
-        return sides
-            .map((value) => String(value || "").trim())
-            .filter((value) => value !== "");
+    function getAddonProducts() {
+        return getProductsByCategory("Agregados");
     }
 
-    function summarizePlateSides(productId, qty) {
+    function getExtraProducts() {
+        return getProductsByCategory("Extras");
+    }
+
+    function normalizePlateConfig(value) {
+        if (value && typeof value === "object") {
+            const agregado = String(value.agregado || value.side || "").trim();
+            if (!agregado) {
+                return null;
+            }
+            const extras = (Array.isArray(value.extras) ? value.extras : [])
+                .map((entry) => String(entry || "").trim())
+                .filter((entry) => entry !== "");
+            return { agregado, extras };
+        }
+        const legacyAgregado = String(value || "").trim();
+        if (!legacyAgregado) {
+            return null;
+        }
+        return { agregado: legacyAgregado, extras: [] };
+    }
+
+    function getPlateConfigs(productId) {
+        const source = state.plateConfigsByProductId.get(Number(productId));
+        if (!Array.isArray(source)) {
+            return [];
+        }
+        const normalized = source
+            .map((entry) => normalizePlateConfig(entry))
+            .filter((entry) => entry && entry.agregado);
+        return normalized;
+    }
+
+    function summarizePlateConfigs(productId, qty) {
         const expected = Math.max(0, Number(qty || 0));
         if (expected <= 0) {
             return "";
         }
 
-        const assigned = getPlateSides(productId).slice(0, expected);
+        const assigned = getPlateConfigs(productId).slice(0, expected);
         if (assigned.length === 0) {
             return "Agregado pendiente.";
         }
 
         if (assigned.length < expected) {
             const missing = expected - assigned.length;
-            return `Agregados asignados: ${assigned.length}/${expected}. Faltan ${missing}.`;
+            return `Agregados/Extras asignados: ${assigned.length}/${expected}. Faltan ${missing}.`;
         }
 
-        const counters = new Map();
-        assigned.forEach((name) => {
-            const key = String(name || "").trim();
-            counters.set(key, Number(counters.get(key) || 0) + 1);
-        });
-
-        const parts = [...counters.entries()].map(([name, count]) => (
-            count > 1 ? `${name} (${count})` : name
-        ));
-        return `Agregados: ${parts.join(", ")}`;
+        return assigned
+            .map((config, index) => {
+                const extrasText = config.extras.length > 0 ? ` + Extras: ${config.extras.join(", ")}` : "";
+                return `#${index + 1} ${config.agregado}${extrasText}`;
+            })
+            .join(" | ");
     }
 
     function buildAddonPromptText(productName, addonProducts) {
@@ -785,6 +827,17 @@
         return [
             `Selecciona el agregado para "${productName}".`,
             "Escribe el numero o el nombre exacto.",
+            "",
+            ...lines
+        ].join("\n");
+    }
+
+    function buildExtraPromptText(productName, extraProducts) {
+        const lines = extraProducts.map((item, index) => `${index + 1}. ${item.nombre}`);
+        return [
+            `Extras opcionales para "${productName}".`,
+            "Escribe numeros o nombres separados por coma.",
+            "Deja vacio y presiona Aceptar para continuar sin extras.",
             "",
             ...lines
         ].join("\n");
@@ -834,13 +887,100 @@
         }
     }
 
+    function parseMultiSelectionInput(rawValue, options) {
+        const cleanedInput = String(rawValue || "").trim();
+        if (!cleanedInput) {
+            return { ok: true, values: [] };
+        }
+
+        const values = [];
+        const seen = new Set();
+        const tokens = cleanedInput.split(",").map((token) => String(token || "").trim()).filter((token) => token !== "");
+        if (tokens.length === 0) {
+            return { ok: true, values: [] };
+        }
+
+        for (const token of tokens) {
+            let selectedName = "";
+            const asNumber = Number.parseInt(token, 10);
+            if (Number.isInteger(asNumber) && asNumber >= 1 && asNumber <= options.length) {
+                selectedName = options[asNumber - 1].nombre;
+            } else {
+                const normalizedToken = normalizeCategoryToken(token);
+                const found = options.find((option) => normalizeCategoryToken(option.nombre) === normalizedToken);
+                if (found) {
+                    selectedName = found.nombre;
+                }
+            }
+
+            if (!selectedName) {
+                return { ok: false, values: [] };
+            }
+
+            const normalizedName = normalizeCategoryToken(selectedName);
+            if (seen.has(normalizedName)) {
+                continue;
+            }
+            seen.add(normalizedName);
+            values.push(selectedName);
+        }
+
+        return { ok: true, values };
+    }
+
+    function promptExtrasForPlate(product) {
+        const productName = String(product && product.nombre ? product.nombre : "plato").trim() || "plato";
+        const extraProducts = getExtraProducts();
+        if (extraProducts.length === 0) {
+            const manualValue = window.prompt(`No hay extras configurados. Escribe extras opcionales para "${productName}" (separados por coma) o deja vacio:`, "");
+            if (manualValue === null) {
+                return null;
+            }
+            const parsed = String(manualValue || "")
+                .split(",")
+                .map((entry) => String(entry || "").trim())
+                .filter((entry) => entry !== "");
+            return [...new Set(parsed.map((entry) => normalizeCategoryToken(entry)).filter((entry) => entry !== ""))]
+                .map((token) => parsed.find((entry) => normalizeCategoryToken(entry) === token))
+                .filter((entry) => String(entry || "").trim() !== "");
+        }
+
+        const promptText = buildExtraPromptText(productName, extraProducts);
+        while (true) {
+            const answer = window.prompt(promptText, "");
+            if (answer === null) {
+                return null;
+            }
+            const selection = parseMultiSelectionInput(answer, extraProducts);
+            if (selection.ok) {
+                return selection.values;
+            }
+            window.alert("Extras invalidos. Escribe numeros o nombres separados por coma.");
+        }
+    }
+
+    function promptPlateConfig(product) {
+        const agregado = promptAddonForPlate(product);
+        if (!agregado) {
+            return null;
+        }
+        const extras = promptExtrasForPlate(product);
+        if (extras === null) {
+            return null;
+        }
+        return {
+            agregado,
+            extras: Array.isArray(extras) ? extras : []
+        };
+    }
+
     function clearCartItem(productId) {
         const normalizedId = Number(productId || 0);
         if (normalizedId <= 0) {
             return;
         }
         state.cart.delete(normalizedId);
-        state.plateSidesByProductId.delete(normalizedId);
+        state.plateConfigsByProductId.delete(normalizedId);
     }
 
     function handleMenuQtyAction(productId, action) {
@@ -855,18 +995,18 @@
         }
 
         if (action === "inc") {
-            if (isAddonItem(product)) {
-                toast("Los agregados se asignan al elegir un plato.", "error");
+            if (isAddonItem(product) || isExtraItem(product)) {
+                toast("Agregados y extras se asignan al elegir un plato.", "error");
                 return;
             }
             if (isPlateItem(product)) {
-                const selectedAddon = promptAddonForPlate(product);
-                if (!selectedAddon) {
+                const config = promptPlateConfig(product);
+                if (!config) {
                     return;
                 }
-                const currentSides = getPlateSides(normalizedId);
-                currentSides.push(selectedAddon);
-                state.plateSidesByProductId.set(normalizedId, currentSides);
+                const currentConfigs = getPlateConfigs(normalizedId);
+                currentConfigs.push(config);
+                state.plateConfigsByProductId.set(normalizedId, currentConfigs);
                 state.cart.set(normalizedId, getQty(normalizedId) + 1);
                 renderMenu();
                 renderCart();
@@ -888,11 +1028,11 @@
                     clearCartItem(normalizedId);
                 } else {
                     state.cart.set(normalizedId, nextQty);
-                    const currentSides = getPlateSides(normalizedId).slice(0, nextQty);
-                    if (currentSides.length === 0) {
-                        state.plateSidesByProductId.delete(normalizedId);
+                    const currentConfigs = getPlateConfigs(normalizedId).slice(0, nextQty);
+                    if (currentConfigs.length === 0) {
+                        state.plateConfigsByProductId.delete(normalizedId);
                     } else {
-                        state.plateSidesByProductId.set(normalizedId, currentSides);
+                        state.plateConfigsByProductId.set(normalizedId, currentConfigs);
                     }
                 }
                 renderMenu();
@@ -1175,18 +1315,22 @@
             return;
         }
 
-        const categories = allCategories.filter(([categoria]) => !isAddonCategory(categoria));
+        const categories = allCategories.filter(([categoria]) => !isAddonOrExtraCategory(categoria));
         if (categories.length === 0) {
             refs.menuMount.innerHTML = `<p class="empty-state">No hay platos o bebestibles disponibles.</p>`;
             return;
         }
 
         const addonProducts = getAddonProducts();
+        const extraProducts = getExtraProducts();
         const addonsLabel = addonProducts.length > 0
             ? `<p class="muted">Agregados disponibles para platos: ${escapeHtml(addonProducts.map((item) => item.nombre).join(", "))}</p>`
             : `<p class="muted">No hay agregados configurados. Al agregar plato se pedira ingresarlo manualmente.</p>`;
+        const extrasLabel = extraProducts.length > 0
+            ? `<p class="muted">Extras opcionales para platos: ${escapeHtml(extraProducts.map((item) => item.nombre).join(", "))}</p>`
+            : `<p class="muted">No hay extras configurados para platos.</p>`;
 
-        refs.menuMount.innerHTML = `${addonsLabel}${categories
+        refs.menuMount.innerHTML = `${addonsLabel}${extrasLabel}${categories
             .map(([categoria, products]) => {
                 const cards = products
                     .map((product) => {
@@ -1253,7 +1397,7 @@
                     return "";
                 }
                 const subtotal = Number(product.precio) * Number(qty);
-                const sideSummary = isPlateItem(product) ? summarizePlateSides(id, qty) : "";
+                const sideSummary = isPlateItem(product) ? summarizePlateConfigs(id, qty) : "";
                 const sideHtml = sideSummary ? `<small>${escapeHtml(sideSummary)}</small>` : "";
                 return `
                     <div class="cart-item">
@@ -1396,17 +1540,26 @@
             }
 
             if (isPlateItem(product)) {
-                const sides = getPlateSides(normalizedId).slice(0, qty);
-                if (sides.length < qty) {
-                    toast(`Faltan agregados para ${product.nombre}.`, "error");
+                const configs = getPlateConfigs(normalizedId).slice(0, qty);
+                if (configs.length < qty) {
+                    toast(`Faltan configuraciones de agregado/extra para ${product.nombre}.`, "error");
                     return;
                 }
 
                 for (let i = 0; i < qty; i += 1) {
+                    const config = normalizePlateConfig(configs[i]);
+                    if (!config || !config.agregado) {
+                        toast(`Faltan configuraciones de agregado para ${product.nombre}.`, "error");
+                        return;
+                    }
+                    const noteParts = [`Agregado: ${config.agregado}`];
+                    if (Array.isArray(config.extras) && config.extras.length > 0) {
+                        noteParts.push(`Extras: ${config.extras.join(", ")}`);
+                    }
                     items.push({
                         producto_id: normalizedId,
                         cantidad: 1,
-                        notas: `Agregado: ${sides[i]}`
+                        notas: noteParts.join(" | ")
                     });
                 }
                 continue;
@@ -1429,7 +1582,7 @@
         try {
             const response = await api.sendOrder(mesaNumero, items, "movil");
             state.cart.clear();
-            state.plateSidesByProductId.clear();
+            state.plateConfigsByProductId.clear();
             renderCart();
             renderMenu();
             await loadMesas(true);

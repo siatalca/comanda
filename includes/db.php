@@ -293,6 +293,8 @@ function seed_productos(PDO $pdo): void
         ['nombre' => 'Ensalada', 'categoria' => 'Agregados', 'precio' => 0],
         ['nombre' => 'Arroz', 'categoria' => 'Agregados', 'precio' => 0],
         ['nombre' => 'Papas Fritas', 'categoria' => 'Agregados', 'precio' => 0],
+        ['nombre' => 'Extra Queso', 'categoria' => 'Extras', 'precio' => 500],
+        ['nombre' => 'Extra Huevo', 'categoria' => 'Extras', 'precio' => 700],
     ];
 
     $insert = $pdo->prepare(

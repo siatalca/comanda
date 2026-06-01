@@ -438,6 +438,9 @@
         if (value.includes("beb")) {
             return "Bebidas";
         }
+        if (value.includes("extra") || value.includes("adic") || value.includes("complement")) {
+            return "Extras";
+        }
         if (value.includes("agreg") || value.includes("acompan") || value.includes("guarn")) {
             return "Agregados";
         }

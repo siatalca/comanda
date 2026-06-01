@@ -326,7 +326,7 @@ CREATE TABLE `productos` (
 
 LOCK TABLES `productos` WRITE;
 /*!40000 ALTER TABLE `productos` DISABLE KEYS */;
-INSERT INTO `productos` VALUES (1,'Cazuela de Vacuno','Platos',6500.00,1),(2,'Pastel de Choclo','Platos',6200.00,1),(3,'Porotos Granados','Platos',5900.00,1),(4,'Carbonada','Platos',6100.00,1),(5,'Empanada de Pino','Platos',2200.00,1),(6,'Humita','Platos',2500.00,1),(7,'Ensalada Chilena','Platos',2800.00,1),(8,'Jugo Natural','Bebidas',1800.00,1),(9,'Bebida 350ml','Bebidas',1500.00,1),(10,'Agua Mineral','Bebidas',1300.00,1),(11,'Ensalada','Agregados',0.00,1),(12,'Arroz','Agregados',0.00,1),(13,'Papas Fritas','Agregados',0.00,1),(14,'redbull 330cc','Bebidas',2500.00,1);
+INSERT INTO `productos` VALUES (1,'Cazuela de Vacuno','Platos',6500.00,1),(2,'Pastel de Choclo','Platos',6200.00,1),(3,'Porotos Granados','Platos',5900.00,1),(4,'Carbonada','Platos',6100.00,1),(5,'Empanada de Pino','Platos',2200.00,1),(6,'Humita','Platos',2500.00,1),(7,'Ensalada Chilena','Platos',2800.00,1),(8,'Jugo Natural','Bebidas',1800.00,1),(9,'Bebida 350ml','Bebidas',1500.00,1),(10,'Agua Mineral','Bebidas',1300.00,1),(11,'Ensalada','Agregados',0.00,1),(12,'Arroz','Agregados',0.00,1),(13,'Papas Fritas','Agregados',0.00,1),(14,'redbull 330cc','Bebidas',2500.00,1),(15,'Extra Queso','Extras',500.00,1),(16,'Extra Huevo','Extras',700.00,1);
 /*!40000 ALTER TABLE `productos` ENABLE KEYS */;
 UNLOCK TABLES;
 

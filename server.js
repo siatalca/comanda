@@ -338,7 +338,9 @@ async function seedProductos() {
         ["Agua Mineral", "Bebidas", 1300],
         ["Ensalada", "Agregados", 0],
         ["Arroz", "Agregados", 0],
-        ["Papas Fritas", "Agregados", 0]
+        ["Papas Fritas", "Agregados", 0],
+        ["Extra Queso", "Extras", 500],
+        ["Extra Huevo", "Extras", 700]
     ];
 
     for (const item of productos) {
@@ -3549,6 +3551,9 @@ function normalizeProductCategoryLabel(category) {
     }
     if (token.includes("beb") || ["jugo", "jugos", "refresco", "refrescos", "gaseosa", "gaseosas", "agua", "aguamineral"].includes(token)) {
         return "Bebidas";
+    }
+    if (token.includes("extra") || token.includes("adic") || token.includes("complement")) {
+        return "Extras";
     }
     if (
         token.includes("agreg")

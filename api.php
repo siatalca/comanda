@@ -1392,6 +1392,14 @@ function normalize_product_category_label(string $category): string
     }
 
     if (
+        strpos($token, 'extra') !== false
+        || strpos($token, 'adic') !== false
+        || strpos($token, 'complement') !== false
+    ) {
+        return 'Extras';
+    }
+
+    if (
         strpos($token, 'agreg') !== false
         || strpos($token, 'acompan') !== false
         || strpos($token, 'guarn') !== false
