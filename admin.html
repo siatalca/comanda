@@ -1,11 +1,13 @@
 <!doctype html>
 <html lang="es">
+
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Panel Admin - Donde Abel</title>
     <link rel="stylesheet" href="assets/css/styles.css?v=20260523-3">
 </head>
+
 <body class="admin-page">
     <header class="app-header">
         <div>
@@ -25,7 +27,8 @@
                 <section class="panel panel-admin-focus admin-main">
                     <div class="panel-title-row">
                         <h2>Menu del dia / Productos activos</h2>
-                        <a class="btn btn-outline btn-small" href="servidor.html?panel=menu-dia#dailyMenuPanel">Ir a menu diario</a>
+                        <a class="btn btn-outline btn-small" href="servidor.html?panel=menu-dia#dailyMenuPanel">Ir a
+                            menu diario</a>
                     </div>
                     <p class="muted">Lista visible al inicio. Aqui gestionas productos disponibles para el dia.</p>
 
@@ -36,17 +39,23 @@
                     <section class="admin-inline-panel admin-priority-panel">
                         <h3>Paso clave del dia</h3>
                         <p class="muted">Para habilitar pedidos del mesero, confirma el menu diario.</p>
-                        <a class="btn btn-primary" href="servidor.html?panel=menu-dia#dailyMenuPanel">Confirmar menu del dia</a>
+                        <a class="btn btn-primary" href="servidor.html?panel=menu-dia#dailyMenuPanel">Confirmar menu del
+                            dia</a>
                     </section>
 
                     <h2>Vistas laterales</h2>
                     <p class="muted">Abre rapido las secciones colapsadas.</p>
                     <div id="adminQuickNav" class="admin-quick-nav">
-                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsProducts">Productos</button>
-                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsSettings">Configuracion</button>
-                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsPrinters">Impresoras</button>
-                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsTables">Mesas</button>
-                        <button class="btn btn-outline admin-quick-btn" type="button" data-open-target="adminDetailsUsers">Usuarios</button>
+                        <button class="btn btn-outline admin-quick-btn" type="button"
+                            data-open-target="adminDetailsProducts">Productos</button>
+                        <button class="btn btn-outline admin-quick-btn" type="button"
+                            data-open-target="adminDetailsSettings">Configuracion</button>
+                        <button class="btn btn-outline admin-quick-btn" type="button"
+                            data-open-target="adminDetailsPrinters">Impresoras</button>
+                        <button class="btn btn-outline admin-quick-btn" type="button"
+                            data-open-target="adminDetailsTables">Mesas</button>
+                        <button class="btn btn-outline admin-quick-btn" type="button"
+                            data-open-target="adminDetailsUsers">Usuarios</button>
                     </div>
 
                     <section class="admin-inline-panel">
@@ -66,6 +75,7 @@
                                             <option value="Bebidas">Bebestibles</option>
                                             <option value="Agregados">Agregados</option>
                                             <option value="Extras">Extras</option>
+                                            <option value="Otros">Otros</option>
                                         </select>
                                     </label>
                                     <label>
@@ -78,7 +88,8 @@
                                     </label>
                                     <div class="action-row">
                                         <button class="btn btn-primary" type="submit">Guardar producto</button>
-                                        <button id="btnProductReset" class="btn btn-outline" type="button">Nuevo</button>
+                                        <button id="btnProductReset" class="btn btn-outline"
+                                            type="button">Nuevo</button>
                                     </div>
                                 </form>
                             </div>
@@ -155,17 +166,21 @@
                                     </label>
                                     <label>
                                         Papel ticket (mm)
-                                        <input id="ticketPaperMm" type="number" min="48" max="120" step="1" placeholder="58">
+                                        <input id="ticketPaperMm" type="number" min="48" max="120" step="1"
+                                            placeholder="58">
                                     </label>
                                     <label>
                                         Ancho ticket (caracteres)
-                                        <input id="ticketChars" type="number" min="20" max="80" step="1" placeholder="32">
+                                        <input id="ticketChars" type="number" min="20" max="80" step="1"
+                                            placeholder="32">
                                     </label>
                                     <label>
                                         Tamano fuente (pt)
-                                        <input id="ticketFontPt" type="number" min="6" max="16" step="0.5" placeholder="9">
+                                        <input id="ticketFontPt" type="number" min="6" max="16" step="0.5"
+                                            placeholder="9">
                                     </label>
-                                    <p class="muted">Para impresora 58mm usa como base: 58mm, 32 caracteres, fuente 9pt.</p>
+                                    <p class="muted">Para impresora 58mm usa como base: 58mm, 32 caracteres, fuente 9pt.
+                                    </p>
                                     <button class="btn btn-primary" type="submit">Guardar impresoras</button>
                                 </form>
                             </div>
@@ -183,7 +198,8 @@
                                     </label>
                                     <button class="btn btn-primary" type="submit">Aplicar cantidad</button>
                                 </form>
-                                <p class="muted">Si reduces mesas y hay comandas abiertas en mesas altas, no se permitira.</p>
+                                <p class="muted">Si reduces mesas y hay comandas abiertas en mesas altas, no se
+                                    permitira.</p>
                             </div>
                         </details>
                     </section>
@@ -213,7 +229,8 @@
                                     </label>
                                     <label>
                                         Password
-                                        <input id="userPassword" type="password" placeholder="Solo para crear o cambiar">
+                                        <input id="userPassword" type="password"
+                                            placeholder="Solo para crear o cambiar">
                                     </label>
                                     <label class="checkbox-row">
                                         <input id="userActive" type="checkbox" checked>
@@ -239,4 +256,5 @@
     <script src="assets/js/api.js?v=20260522-5" defer></script>
     <script src="assets/js/admin.js?v=20260601-3" defer></script>
 </body>
+
 </html>
