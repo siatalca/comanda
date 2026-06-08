@@ -5,3 +5,4 @@ mobile/node_modules/
 mobile/android/
 mobile/ios/
 desktop.config.json
+*.log

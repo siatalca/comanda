@@ -115,6 +115,7 @@ async function initDbSchema() {
             nombre VARCHAR(190) NOT NULL,
             categoria VARCHAR(50) NOT NULL,
             precio DECIMAL(12,2) NOT NULL,
+            requiere_agregado TINYINT(1) NOT NULL DEFAULT 0,
             activo TINYINT(1) NOT NULL DEFAULT 1,
             PRIMARY KEY (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
@@ -283,6 +284,7 @@ async function initDbSchema() {
     await ensureTableColumn("comanda_items", "cocina_entregado", "TINYINT(1) NOT NULL DEFAULT 0");
     await ensureTableColumn("comanda_items", "cocina_entregado_en", "DATETIME DEFAULT NULL");
     await ensureTableColumn("comanda_items", "cocina_entregado_por", "INT UNSIGNED DEFAULT NULL");
+    await ensureTableColumn("productos", "requiere_agregado", "TINYINT(1) NOT NULL DEFAULT 0");
     await run("UPDATE usuarios SET alertas_nuevas_comandas = 1 WHERE alertas_nuevas_comandas IS NULL");
 }
 
@@ -333,9 +335,9 @@ async function seedProductos() {
         ["Empanada de Pino", "Platos", 2200],
         ["Humita", "Platos", 2500],
         ["Ensalada Chilena", "Platos", 2800],
-        ["Jugo Natural", "Bebidas", 1800],
-        ["Bebida 350ml", "Bebidas", 1500],
-        ["Agua Mineral", "Bebidas", 1300],
+        ["Jugo Natural", "Bebestibles", 1800],
+        ["Bebida 350ml", "Bebestibles", 1500],
+        ["Agua Mineral", "Bebestibles", 1300],
         ["Ensalada", "Agregados", 0],
         ["Arroz", "Agregados", 0],
         ["Papas Fritas", "Agregados", 0],
@@ -931,24 +933,25 @@ async function processAdminProductSave(body) {
     const nombre = String(body.nombre || "").trim();
     const categoria = normalizeProductCategoryLabel(String(body.categoria || "Platos"));
     const precio = cleanFloat(body.precio);
+    const requiereAgregado = cleanInt(body.requiere_agregado) === 1 && categoria === "Platos" ? 1 : 0;
     const activo = cleanInt(body.activo, 1) === 1 ? 1 : 0;
 
     if (!nombre) {
         throwHttp(422, "El nombre del producto es obligatorio.");
     }
-    if (precio <= 0) {
-        throwHttp(422, "El precio debe ser mayor a 0.");
+    if (precio < 0 || (precio <= 0 && categoria !== "Agregados")) {
+        throwHttp(422, categoria === "Agregados" ? "El precio no puede ser negativo." : "El precio debe ser mayor a 0.");
     }
 
     if (id > 0) {
         await run(
-            "UPDATE productos SET nombre = ?, categoria = ?, precio = ?, activo = ? WHERE id = ?",
-            [nombre, categoria, precio, activo, id]
+            "UPDATE productos SET nombre = ?, categoria = ?, precio = ?, requiere_agregado = ?, activo = ? WHERE id = ?",
+            [nombre, categoria, precio, requiereAgregado, activo, id]
         );
     } else {
         await run(
-            "INSERT INTO productos (nombre, categoria, precio, activo) VALUES (?, ?, ?, ?)",
-            [nombre, categoria, precio, activo]
+            "INSERT INTO productos (nombre, categoria, precio, requiere_agregado, activo) VALUES (?, ?, ?, ?, ?)",
+            [nombre, categoria, precio, requiereAgregado, activo]
         );
     }
 
@@ -1996,7 +1999,7 @@ async function getAdminSettingsPayload() {
 
 async function getProductsAdmin() {
     const rows = await all(
-        `SELECT id, nombre, categoria, precio, activo
+        `SELECT id, nombre, categoria, precio, requiere_agregado, activo
          FROM productos
          ORDER BY categoria ASC, nombre ASC`
     );
@@ -2005,6 +2008,7 @@ async function getProductsAdmin() {
         nombre: String(row.nombre || ""),
         categoria: normalizeProductCategoryLabel(String(row.categoria || "")),
         precio: cleanFloat(row.precio),
+        requiere_agregado: cleanInt(row.requiere_agregado) === 1 ? 1 : 0,
         activo: cleanInt(row.activo) === 1 ? 1 : 0
     }));
 }
@@ -2038,7 +2042,7 @@ async function getMenu(user) {
 
 async function fetchActiveProducts() {
     const rows = await all(
-        `SELECT id, nombre, categoria, precio
+        `SELECT id, nombre, categoria, precio, requiere_agregado
          FROM productos
          WHERE activo = 1
          ORDER BY categoria ASC, nombre ASC`
@@ -2047,7 +2051,8 @@ async function fetchActiveProducts() {
         id: cleanInt(row.id),
         nombre: String(row.nombre || ""),
         categoria: normalizeProductCategoryLabel(String(row.categoria || "Platos")),
-        precio: cleanFloat(row.precio)
+        precio: cleanFloat(row.precio),
+        requiere_agregado: cleanInt(row.requiere_agregado) === 1 ? 1 : 0
     }));
 }
 
@@ -2065,7 +2070,8 @@ function groupProductsForMenu(products) {
             id: cleanInt(product.id),
             nombre: String(product.nombre || ""),
             precio: cleanFloat(product.precio),
-            categoria: category
+            categoria: category,
+            requiere_agregado: cleanInt(product.requiere_agregado) === 1 ? 1 : 0
         });
     }
     return grouped;
@@ -2096,6 +2102,7 @@ async function getDailyMenuPayload(fechaInput) {
             nombre: String(product.nombre || ""),
             categoria: String(product.categoria || "General"),
             precio: cleanFloat(product.precio),
+            requiere_agregado: cleanInt(product.requiere_agregado) === 1 ? 1 : 0,
             habilitado: enabled ? 1 : 0
         };
         list.push(item);
@@ -2783,7 +2790,7 @@ function isBeverageCategory(categoria) {
 
 async function getProducto(productoId) {
     return one(
-        `SELECT id, nombre, categoria, precio
+        `SELECT id, nombre, categoria, precio, requiere_agregado
          FROM productos
          WHERE id = ? AND activo = 1
          LIMIT 1`,
@@ -3550,7 +3557,7 @@ function normalizeProductCategoryLabel(category) {
         return "Platos";
     }
     if (token.includes("beb") || ["jugo", "jugos", "refresco", "refrescos", "gaseosa", "gaseosas", "agua", "aguamineral"].includes(token)) {
-        return "Bebidas";
+        return "Bebestibles";
     }
     if (token.includes("extra") || token.includes("adic") || token.includes("complement")) {
         return "Extras";

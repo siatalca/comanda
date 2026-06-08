@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Panel Admin - Donde Abel</title>
-    <link rel="stylesheet" href="assets/css/styles.css?v=20260523-3">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260608-1">
 </head>
 
 <body class="admin-page">
@@ -72,7 +72,7 @@
                                         Categoria
                                         <select id="productCategory" required>
                                             <option value="Platos">Platos</option>
-                                            <option value="Bebidas">Bebestibles</option>
+                                            <option value="Bebestibles">Bebestibles</option>
                                             <option value="Agregados">Agregados</option>
                                             <option value="Extras">Extras</option>
                                             <option value="Otros">Otros</option>
@@ -80,7 +80,11 @@
                                     </label>
                                     <label>
                                         Precio
-                                        <input id="productPrice" type="number" min="1" required>
+                                        <input id="productPrice" type="number" min="0" required>
+                                    </label>
+                                    <label class="checkbox-row" id="productRequiresAddonRow">
+                                        <input id="productRequiresAddon" type="checkbox">
+                                        Pide agregado al mesero
                                     </label>
                                     <label class="checkbox-row">
                                         <input id="productActive" type="checkbox" checked>
@@ -254,7 +258,7 @@
     <aside id="toast" class="toast" aria-live="polite"></aside>
 
     <script src="assets/js/api.js?v=20260522-5" defer></script>
-    <script src="assets/js/admin.js?v=20260601-3" defer></script>
+    <script src="assets/js/admin.js?v=20260608-1" defer></script>
 </body>
 
 </html>

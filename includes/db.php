@@ -105,6 +105,7 @@ function db_driver(PDO $pdo): string
 function init_db(PDO $pdo): void
 {
     init_db_mysql($pdo);
+    ensure_product_options_schema($pdo);
 
     seed_mesas($pdo, 20);
     seed_productos($pdo);
@@ -134,6 +135,7 @@ CREATE TABLE IF NOT EXISTS productos (
     nombre VARCHAR(190) NOT NULL,
     categoria VARCHAR(50) NOT NULL,
     precio DECIMAL(12,2) NOT NULL,
+    requiere_agregado TINYINT(1) NOT NULL DEFAULT 0,
     activo TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -249,6 +251,27 @@ SQL
     );
 }
 
+function ensure_product_options_schema(PDO $pdo): void
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) AS total
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = :table
+           AND COLUMN_NAME = :column'
+    );
+    $stmt->execute([
+        ':table' => 'productos',
+        ':column' => 'requiere_agregado',
+    ]);
+
+    if ((int) $stmt->fetchColumn() > 0) {
+        return;
+    }
+
+    $pdo->exec('ALTER TABLE productos ADD COLUMN requiere_agregado TINYINT(1) NOT NULL DEFAULT 0');
+}
+
 function seed_mesas(PDO $pdo, int $cantidad): void
 {
     $stmt = $pdo->query('SELECT COUNT(*) AS total FROM mesas');
@@ -287,9 +310,9 @@ function seed_productos(PDO $pdo): void
         ['nombre' => 'Empanada de Pino', 'categoria' => 'Platos', 'precio' => 2200],
         ['nombre' => 'Humita', 'categoria' => 'Platos', 'precio' => 2500],
         ['nombre' => 'Ensalada Chilena', 'categoria' => 'Platos', 'precio' => 2800],
-        ['nombre' => 'Jugo Natural', 'categoria' => 'Bebidas', 'precio' => 1800],
-        ['nombre' => 'Bebida 350ml', 'categoria' => 'Bebidas', 'precio' => 1500],
-        ['nombre' => 'Agua Mineral', 'categoria' => 'Bebidas', 'precio' => 1300],
+        ['nombre' => 'Jugo Natural', 'categoria' => 'Bebestibles', 'precio' => 1800],
+        ['nombre' => 'Bebida 350ml', 'categoria' => 'Bebestibles', 'precio' => 1500],
+        ['nombre' => 'Agua Mineral', 'categoria' => 'Bebestibles', 'precio' => 1300],
         ['nombre' => 'Ensalada', 'categoria' => 'Agregados', 'precio' => 0],
         ['nombre' => 'Arroz', 'categoria' => 'Agregados', 'precio' => 0],
         ['nombre' => 'Papas Fritas', 'categoria' => 'Agregados', 'precio' => 0],

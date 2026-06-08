@@ -77,6 +77,8 @@
         refs.productName = document.getElementById("productName");
         refs.productCategory = document.getElementById("productCategory");
         refs.productPrice = document.getElementById("productPrice");
+        refs.productRequiresAddonRow = document.getElementById("productRequiresAddonRow");
+        refs.productRequiresAddon = document.getElementById("productRequiresAddon");
         refs.productActive = document.getElementById("productActive");
         refs.btnProductReset = document.getElementById("btnProductReset");
         refs.productsTable = document.getElementById("productsTable");
@@ -150,6 +152,7 @@
         refs.productForm.addEventListener("submit", saveProduct);
         refs.btnProductReset.addEventListener("click", resetProductForm);
         refs.productsTable.addEventListener("click", handleProductsActions);
+        refs.productCategory.addEventListener("change", syncProductRequiresAddon);
 
         refs.userForm.addEventListener("submit", saveUser);
         refs.btnUserReset.addEventListener("click", resetUserForm);
@@ -280,6 +283,7 @@
         hydratePrinters();
         renderProducts();
         renderUsers();
+        syncProductRequiresAddon();
         syncAdminQuickNav();
     }
 
@@ -394,6 +398,7 @@
                         <th>Nombre</th>
                         <th>Categoria</th>
                         <th>Precio</th>
+                        <th>Agregado</th>
                         <th>Activo</th>
                         <th>Acciones</th>
                     </tr>
@@ -406,6 +411,7 @@
                                 <td data-label="Nombre">${escapeHtml(item.nombre)}</td>
                                 <td data-label="Categoria">${escapeHtml(item.categoria)}</td>
                                 <td data-label="Precio">${api.money(item.precio)}</td>
+                                <td data-label="Agregado">${Number(item.requiere_agregado || 0) === 1 ? "Si" : "No"}</td>
                                 <td data-label="Activo">${item.activo === 1 ? "Si" : "No"}</td>
                                 <td data-label="Acciones" class="table-actions">
                                     <button class="btn btn-outline btn-small" data-product-edit="${item.id}">Editar</button>
@@ -426,7 +432,9 @@
         refs.productName.value = "";
         refs.productCategory.value = "Platos";
         refs.productPrice.value = "";
+        refs.productRequiresAddon.checked = false;
         refs.productActive.checked = true;
+        syncProductRequiresAddon();
     }
 
     function normalizeProductCategory(category) {
@@ -436,7 +444,7 @@
             .normalize("NFD")
             .replace(/[\u0300-\u036f]/g, "");
         if (value.includes("beb")) {
-            return "Bebidas";
+            return "Bebestibles";
         }
         if (value.includes("extra") || value.includes("adic") || value.includes("complement")) {
             return "Extras";
@@ -448,6 +456,17 @@
             return "Agregados";
         }
         return "Platos";
+    }
+
+    function syncProductRequiresAddon() {
+        const isPlate = normalizeProductCategory(refs.productCategory.value) === "Platos";
+        if (!isPlate) {
+            refs.productRequiresAddon.checked = false;
+        }
+        refs.productRequiresAddon.disabled = !isPlate;
+        if (refs.productRequiresAddonRow) {
+            refs.productRequiresAddonRow.classList.toggle("muted", !isPlate);
+        }
     }
 
     function handleProductsActions(event) {
@@ -464,7 +483,9 @@
             refs.productName.value = product.nombre;
             refs.productCategory.value = normalizeProductCategory(product.categoria);
             refs.productPrice.value = String(product.precio);
+            refs.productRequiresAddon.checked = Number(product.requiere_agregado || 0) === 1;
             refs.productActive.checked = Number(product.activo) === 1;
+            syncProductRequiresAddon();
             openAdminPanel("adminDetailsProducts");
             refs.productName.focus({ preventScroll: true });
             refs.productName.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -487,6 +508,7 @@
                 nombre: refs.productName.value.trim(),
                 categoria: normalizeProductCategory(refs.productCategory.value),
                 precio: Number(refs.productPrice.value || 0),
+                requiere_agregado: refs.productRequiresAddon.checked ? 1 : 0,
                 activo: refs.productActive.checked ? 1 : 0
             };
             const response = await api.adminProductSave(payload);

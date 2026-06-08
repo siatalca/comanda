@@ -1388,7 +1388,7 @@ function normalize_product_category_label(string $category): string
     }
 
     if (strpos($token, 'beb') !== false || in_array($token, ['jugo', 'jugos', 'refresco', 'refrescos', 'gaseosa', 'gaseosas', 'agua', 'aguamineral'], true)) {
-        return 'Bebidas';
+        return 'Bebestibles';
     }
 
     if (
@@ -1620,10 +1620,13 @@ function ensure_mesas_to_limit(PDO $pdo, int $cantidad): void
 
 function process_admin_product_save(PDO $pdo, array $body): void
 {
+    ensure_product_options_schema($pdo);
+
     $id = clean_int($body['id'] ?? 0);
     $nombre = trim((string) ($body['nombre'] ?? ''));
     $categoria = normalize_product_category_label((string) ($body['categoria'] ?? 'Platos'));
     $precio = clean_float($body['precio'] ?? 0);
+    $requiereAgregado = clean_int($body['requiere_agregado'] ?? 0) === 1 && $categoria === 'Platos' ? 1 : 0;
     $activo = clean_int($body['activo'] ?? 1) === 1 ? 1 : 0;
 
     if ($nombre === '') {
@@ -1632,17 +1635,17 @@ function process_admin_product_save(PDO $pdo, array $body): void
             'error' => 'El nombre del producto es obligatorio.',
         ], 422);
     }
-    if ($precio <= 0) {
+    if ($precio < 0 || ($precio <= 0 && $categoria !== 'Agregados')) {
         json_response([
             'ok' => false,
-            'error' => 'El precio debe ser mayor a 0.',
+            'error' => $categoria === 'Agregados' ? 'El precio no puede ser negativo.' : 'El precio debe ser mayor a 0.',
         ], 422);
     }
 
     if ($id > 0) {
         $update = $pdo->prepare(
             'UPDATE productos
-             SET nombre = :nombre, categoria = :categoria, precio = :precio, activo = :activo
+             SET nombre = :nombre, categoria = :categoria, precio = :precio, requiere_agregado = :requiere_agregado, activo = :activo
              WHERE id = :id'
         );
         $update->execute([
@@ -1650,17 +1653,19 @@ function process_admin_product_save(PDO $pdo, array $body): void
             ':nombre' => $nombre,
             ':categoria' => $categoria,
             ':precio' => $precio,
+            ':requiere_agregado' => $requiereAgregado,
             ':activo' => $activo,
         ]);
     } else {
         $insert = $pdo->prepare(
-            'INSERT INTO productos (nombre, categoria, precio, activo)
-             VALUES (:nombre, :categoria, :precio, :activo)'
+            'INSERT INTO productos (nombre, categoria, precio, requiere_agregado, activo)
+             VALUES (:nombre, :categoria, :precio, :requiere_agregado, :activo)'
         );
         $insert->execute([
             ':nombre' => $nombre,
             ':categoria' => $categoria,
             ':precio' => $precio,
+            ':requiere_agregado' => $requiereAgregado,
             ':activo' => $activo,
         ]);
     }
@@ -1892,8 +1897,10 @@ function tip_amount_for_total(float $total, float $percent): float
 
 function get_products_admin(PDO $pdo): array
 {
+    ensure_product_options_schema($pdo);
+
     $stmt = $pdo->query(
-        'SELECT id, nombre, categoria, precio, activo
+        'SELECT id, nombre, categoria, precio, requiere_agregado, activo
          FROM productos
          ORDER BY categoria ASC, nombre ASC'
     );
@@ -1905,6 +1912,7 @@ function get_products_admin(PDO $pdo): array
             'nombre' => (string) $row['nombre'],
             'categoria' => normalize_product_category_label((string) $row['categoria']),
             'precio' => (float) $row['precio'],
+            'requiere_agregado' => clean_int($row['requiere_agregado'] ?? 0) === 1 ? 1 : 0,
             'activo' => clean_int($row['activo']) === 1 ? 1 : 0,
         ];
     }
@@ -2743,8 +2751,10 @@ function get_effective_daily_menu_for_mesero(PDO $pdo): array
 
 function fetch_active_products(PDO $pdo): array
 {
+    ensure_product_options_schema($pdo);
+
     $stmt = $pdo->query(
-        'SELECT id, nombre, categoria, precio
+        'SELECT id, nombre, categoria, precio, requiere_agregado
          FROM productos
          WHERE activo = 1
          ORDER BY categoria ASC, nombre ASC'
@@ -2757,6 +2767,7 @@ function fetch_active_products(PDO $pdo): array
             'nombre' => (string) ($row['nombre'] ?? ''),
             'categoria' => normalize_product_category_label((string) ($row['categoria'] ?? 'Platos')),
             'precio' => clean_float($row['precio'] ?? 0),
+            'requiere_agregado' => clean_int($row['requiere_agregado'] ?? 0) === 1 ? 1 : 0,
         ];
     }
 
@@ -2781,6 +2792,7 @@ function group_products_for_menu(array $products): array
             'nombre' => (string) ($product['nombre'] ?? ''),
             'precio' => clean_float($product['precio'] ?? 0),
             'categoria' => $category,
+            'requiere_agregado' => clean_int($product['requiere_agregado'] ?? 0) === 1 ? 1 : 0,
         ];
     }
 
@@ -2815,6 +2827,7 @@ function get_daily_menu_payload(PDO $pdo, ?string $fecha = null): array
             'nombre' => (string) ($product['nombre'] ?? ''),
             'categoria' => (string) ($product['categoria'] ?? 'General'),
             'precio' => clean_float($product['precio'] ?? 0),
+            'requiere_agregado' => clean_int($product['requiere_agregado'] ?? 0) === 1 ? 1 : 0,
             'habilitado' => $enabled ? 1 : 0,
         ];
         $list[] = $item;
@@ -3647,8 +3660,10 @@ function summarize_order_prints(array $printResults): array
 
 function get_producto(PDO $pdo, int $productoId): ?array
 {
+    ensure_product_options_schema($pdo);
+
     $stmt = $pdo->prepare(
-        'SELECT id, nombre, categoria, precio
+        'SELECT id, nombre, categoria, precio, requiere_agregado
          FROM productos
          WHERE id = :id AND activo = 1
          LIMIT 1'

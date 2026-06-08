@@ -305,6 +305,13 @@ input {
     font-size: 0.96rem;
 }
 
+.product-card-note {
+    display: inline-flex;
+    margin-top: 0.28rem;
+    color: var(--secondary);
+    font-weight: 800;
+}
+
 .product-card p {
     font-weight: 700;
     color: var(--primary-dark);

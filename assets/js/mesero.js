@@ -296,7 +296,7 @@
                 }
 
                 const product = state.productsById.get(normalizedId);
-                if (!isPlateItem(product)) {
+                if (!productRequiresAddon(product)) {
                     state.plateConfigsByProductId.delete(normalizedId);
                     return;
                 }
@@ -685,7 +685,7 @@
             return "Platos";
         }
         if (token.includes("beb") || ["jugo", "jugos", "refresco", "refrescos", "gaseosa", "gaseosas", "agua", "aguamineral"].includes(token)) {
-            return "Bebidas";
+            return "Bebestibles";
         }
         if (token.includes("extra") || token.includes("adic") || token.includes("complement")) {
             return "Extras";
@@ -707,27 +707,21 @@
         return normalizeMenuCategoryLabel(category) === "Platos";
     }
 
+    function productRequiresAddon(item) {
+        return isPlateItem(item) && Number(item && item.requiere_agregado ? item.requiere_agregado : 0) === 1;
+    }
+
     function isAddonCategory(category) {
         return normalizeMenuCategoryLabel(category) === "Agregados";
     }
 
-    function isExtraCategory(category) {
-        return normalizeMenuCategoryLabel(category) === "Extras";
-    }
-
-    function isAddonOrExtraCategory(category) {
-        const normalized = normalizeMenuCategoryLabel(category);
-        return normalized === "Agregados" || normalized === "Extras";
+    function isHiddenAddonCategory(category) {
+        return normalizeMenuCategoryLabel(category) === "Agregados";
     }
 
     function isAddonItem(item) {
         const category = String(item && item.categoria ? item.categoria : "").trim();
         return isAddonCategory(category);
-    }
-
-    function isExtraItem(item) {
-        const category = String(item && item.categoria ? item.categoria : "").trim();
-        return isExtraCategory(category);
     }
 
     function getProductsByCategory(categoryLabel) {
@@ -763,10 +757,6 @@
 
     function getAddonProducts() {
         return getProductsByCategory("Agregados");
-    }
-
-    function getExtraProducts() {
-        return getProductsByCategory("Extras");
     }
 
     function normalizePlateConfig(value) {
@@ -811,7 +801,7 @@
 
         if (assigned.length < expected) {
             const missing = expected - assigned.length;
-            return `Agregados/Extras asignados: ${assigned.length}/${expected}. Faltan ${missing}.`;
+            return `Agregados asignados: ${assigned.length}/${expected}. Faltan ${missing}.`;
         }
 
         return assigned
@@ -827,17 +817,6 @@
         return [
             `Selecciona el agregado para "${productName}".`,
             "Escribe el numero o el nombre exacto.",
-            "",
-            ...lines
-        ].join("\n");
-    }
-
-    function buildExtraPromptText(productName, extraProducts) {
-        const lines = extraProducts.map((item, index) => `${index + 1}. ${item.nombre}`);
-        return [
-            `Extras opcionales para "${productName}".`,
-            "Escribe numeros o nombres separados por coma.",
-            "Deja vacio y presiona Aceptar para continuar sin extras.",
             "",
             ...lines
         ].join("\n");
@@ -887,90 +866,14 @@
         }
     }
 
-    function parseMultiSelectionInput(rawValue, options) {
-        const cleanedInput = String(rawValue || "").trim();
-        if (!cleanedInput) {
-            return { ok: true, values: [] };
-        }
-
-        const values = [];
-        const seen = new Set();
-        const tokens = cleanedInput.split(",").map((token) => String(token || "").trim()).filter((token) => token !== "");
-        if (tokens.length === 0) {
-            return { ok: true, values: [] };
-        }
-
-        for (const token of tokens) {
-            let selectedName = "";
-            const asNumber = Number.parseInt(token, 10);
-            if (Number.isInteger(asNumber) && asNumber >= 1 && asNumber <= options.length) {
-                selectedName = options[asNumber - 1].nombre;
-            } else {
-                const normalizedToken = normalizeCategoryToken(token);
-                const found = options.find((option) => normalizeCategoryToken(option.nombre) === normalizedToken);
-                if (found) {
-                    selectedName = found.nombre;
-                }
-            }
-
-            if (!selectedName) {
-                return { ok: false, values: [] };
-            }
-
-            const normalizedName = normalizeCategoryToken(selectedName);
-            if (seen.has(normalizedName)) {
-                continue;
-            }
-            seen.add(normalizedName);
-            values.push(selectedName);
-        }
-
-        return { ok: true, values };
-    }
-
-    function promptExtrasForPlate(product) {
-        const productName = String(product && product.nombre ? product.nombre : "plato").trim() || "plato";
-        const extraProducts = getExtraProducts();
-        if (extraProducts.length === 0) {
-            const manualValue = window.prompt(`No hay extras configurados. Escribe extras opcionales para "${productName}" (separados por coma) o deja vacio:`, "");
-            if (manualValue === null) {
-                return null;
-            }
-            const parsed = String(manualValue || "")
-                .split(",")
-                .map((entry) => String(entry || "").trim())
-                .filter((entry) => entry !== "");
-            return [...new Set(parsed.map((entry) => normalizeCategoryToken(entry)).filter((entry) => entry !== ""))]
-                .map((token) => parsed.find((entry) => normalizeCategoryToken(entry) === token))
-                .filter((entry) => String(entry || "").trim() !== "");
-        }
-
-        const promptText = buildExtraPromptText(productName, extraProducts);
-        while (true) {
-            const answer = window.prompt(promptText, "");
-            if (answer === null) {
-                return null;
-            }
-            const selection = parseMultiSelectionInput(answer, extraProducts);
-            if (selection.ok) {
-                return selection.values;
-            }
-            window.alert("Extras invalidos. Escribe numeros o nombres separados por coma.");
-        }
-    }
-
     function promptPlateConfig(product) {
         const agregado = promptAddonForPlate(product);
         if (!agregado) {
             return null;
         }
-        const extras = promptExtrasForPlate(product);
-        if (extras === null) {
-            return null;
-        }
         return {
             agregado,
-            extras: Array.isArray(extras) ? extras : []
+            extras: []
         };
     }
 
@@ -995,11 +898,11 @@
         }
 
         if (action === "inc") {
-            if (isAddonItem(product) || isExtraItem(product)) {
-                toast("Agregados y extras se asignan al elegir un plato.", "error");
+            if (isAddonItem(product)) {
+                toast("Los agregados se eligen al sumar un plato que los pida.", "error");
                 return;
             }
-            if (isPlateItem(product)) {
+            if (productRequiresAddon(product)) {
                 const config = promptPlateConfig(product);
                 if (!config) {
                     return;
@@ -1018,7 +921,7 @@
         }
 
         if (action === "dec") {
-            if (isPlateItem(product)) {
+            if (productRequiresAddon(product)) {
                 const currentQty = getQty(normalizedId);
                 if (currentQty <= 0) {
                     return;
@@ -1315,31 +1218,34 @@
             return;
         }
 
-        const categories = allCategories.filter(([categoria]) => !isAddonOrExtraCategory(categoria));
+        const categories = allCategories
+            .filter(([categoria]) => !isHiddenAddonCategory(categoria))
+            .sort(compareMenuCategories);
         if (categories.length === 0) {
             refs.menuMount.innerHTML = `<p class="empty-state">No hay platos o bebestibles disponibles.</p>`;
             return;
         }
 
         const addonProducts = getAddonProducts();
-        const extraProducts = getExtraProducts();
-        const addonsLabel = addonProducts.length > 0
+        const hasProductsWithAddon = categories.some(([, products]) => (Array.isArray(products) ? products : []).some((product) => productRequiresAddon(product)));
+        const addonsLabel = hasProductsWithAddon && addonProducts.length > 0
             ? `<p class="muted">Agregados disponibles para platos: ${escapeHtml(addonProducts.map((item) => item.nombre).join(", "))}</p>`
-            : `<p class="muted">No hay agregados configurados. Al agregar plato se pedira ingresarlo manualmente.</p>`;
-        const extrasLabel = extraProducts.length > 0
-            ? `<p class="muted">Extras opcionales para platos: ${escapeHtml(extraProducts.map((item) => item.nombre).join(", "))}</p>`
-            : `<p class="muted">No hay extras configurados para platos.</p>`;
+            : (hasProductsWithAddon ? `<p class="muted">No hay agregados configurados. Al agregar plato se pedira ingresarlo manualmente.</p>` : "");
 
-        refs.menuMount.innerHTML = `${addonsLabel}${extrasLabel}${categories
+        refs.menuMount.innerHTML = `${addonsLabel}${categories
             .map(([categoria, products]) => {
                 const cards = products
                     .map((product) => {
                         const id = Number(product.id);
                         const qty = getQty(id);
+                        const addonBadge = productRequiresAddon(product)
+                            ? `<small class="product-card-note">Pide agregado</small>`
+                            : "";
                         return `
                             <article class="product-card">
                                 <div>
                                     <h3>${escapeHtml(product.nombre)}</h3>
+                                    ${addonBadge}
                                     <p>${api.money(product.precio)}</p>
                                 </div>
                                 <div class="qty-control">
@@ -1360,6 +1266,22 @@
                 `;
             })
             .join("")}`;
+    }
+
+    function compareMenuCategories([categoryA], [categoryB]) {
+        const order = {
+            Platos: 1,
+            Bebestibles: 2,
+            Extras: 3
+        };
+        const normalizedA = normalizeMenuCategoryLabel(categoryA);
+        const normalizedB = normalizeMenuCategoryLabel(categoryB);
+        const weightA = order[normalizedA] || 20;
+        const weightB = order[normalizedB] || 20;
+        if (weightA !== weightB) {
+            return weightA - weightB;
+        }
+        return String(categoryA || "").localeCompare(String(categoryB || ""), "es", { sensitivity: "base" });
     }
 
     function getQty(productId) {
@@ -1397,7 +1319,7 @@
                     return "";
                 }
                 const subtotal = Number(product.precio) * Number(qty);
-                const sideSummary = isPlateItem(product) ? summarizePlateConfigs(id, qty) : "";
+                const sideSummary = productRequiresAddon(product) ? summarizePlateConfigs(id, qty) : "";
                 const sideHtml = sideSummary ? `<small>${escapeHtml(sideSummary)}</small>` : "";
                 return `
                     <div class="cart-item">
@@ -1539,10 +1461,10 @@
                 continue;
             }
 
-            if (isPlateItem(product)) {
+            if (productRequiresAddon(product)) {
                 const configs = getPlateConfigs(normalizedId).slice(0, qty);
                 if (configs.length < qty) {
-                    toast(`Faltan configuraciones de agregado/extra para ${product.nombre}.`, "error");
+                    toast(`Faltan agregados para ${product.nombre}.`, "error");
                     return;
                 }
 
