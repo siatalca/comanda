@@ -226,7 +226,9 @@ function applyDesktopConfigEnv() {
         dbPass: "COMANDA_DB_PASS",
         dbName: "COMANDA_DB_NAME",
         dbCharset: "COMANDA_DB_CHARSET",
-        dbCollation: "COMANDA_DB_COLLATION"
+        dbCollation: "COMANDA_DB_COLLATION",
+        dbSkipCreate: "COMANDA_DB_SKIP_CREATE",
+        printerName: "PRINTER_NAME"
     };
 
     Object.keys(mapping).forEach((key) => {

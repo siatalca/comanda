@@ -165,12 +165,70 @@ Campos principales:
 - `dbUser`: usuario de base de datos
 - `dbPass`: password de base de datos
 - `dbName`: nombre de base (`comanda`)
+- `dbSkipCreate`: `true` cuando la base remota ya existe y el usuario no puede crear bases de datos
+- `printerName`: nombre exacto de la impresora local; si queda vacio usa la predeterminada de Windows
 
 Luego ejecuta:
 
 ```powershell
 npm run desktop
 ```
+
+### 7.2) Modo PC caja con impresion directa
+
+Para que la caja imprima sin popup de seleccion de impresora, el PC de caja debe ejecutar el backend local
+Node/Electron. El navegador por si solo no puede imprimir en silencio por seguridad.
+
+Flujo recomendado:
+
+1. Instala Node.js en el PC de caja.
+2. Copia el proyecto al PC de caja.
+3. Ejecuta una vez:
+
+```powershell
+npm install
+```
+
+4. Crea la configuracion local:
+
+```powershell
+Copy-Item desktop.config.caja.example.json desktop.config.json
+```
+
+5. Edita `desktop.config.json` con los datos reales de MySQL de `comanda.mi-registro.cl`.
+   Deja `dbSkipCreate` en `true` si la base ya existe en el hosting.
+6. Define la impresora de una de estas formas:
+   - En Windows, deja la impresora termica como predeterminada y `printerName` vacio.
+   - O escribe en `printerName` el nombre exacto de la impresora.
+   - O entra a `admin.html` y guarda la impresora desde el panel.
+7. Inicia la caja:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-caja-desktop.ps1
+```
+
+La caja abrira `http://127.0.0.1:3003/login.html`, trabajara contra la base remota y enviara tickets
+al servicio local `http://127.0.0.1:7003/print`, sin mostrar popup.
+
+### 7.3) Si se usa Apache/XAMPP en el PC caja
+
+Apache no reemplaza el servicio de impresion Node; para imprimir sin popup igual debe estar corriendo
+`server.js` o la app Electron. Si usas Apache/PHP para servir las paginas localmente, configura estas
+variables en Apache o en el entorno de Windows:
+
+```apache
+SetEnv COMANDA_DB_HOST "comanda.mi-registro.cl"
+SetEnv COMANDA_DB_PORT "3306"
+SetEnv COMANDA_DB_NAME "comanda"
+SetEnv COMANDA_DB_USER "USUARIO_DB_REMOTO"
+SetEnv COMANDA_DB_PASS "CLAVE_DB_REMOTA"
+SetEnv COMANDA_DB_SKIP_CREATE "1"
+SetEnv PRINT_SERVICE_URL "http://127.0.0.1:7003/print"
+SetEnv PRINTER_NAME ""
+```
+
+Despues reinicia Apache. Si `PRINTER_NAME` queda vacio, Windows usara la impresora predeterminada
+o la impresora guardada en el panel admin.
 
 ## 8) App movil (Android/iOS con Capacitor)
 

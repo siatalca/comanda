@@ -11,5 +11,6 @@ return [
         'password' => getenv('COMANDA_DB_PASS') ?: '',
         'charset' => getenv('COMANDA_DB_CHARSET') ?: 'utf8mb4',
         'collation' => getenv('COMANDA_DB_COLLATION') ?: 'utf8mb4_unicode_ci',
+        'skip_create' => filter_var(getenv('COMANDA_DB_SKIP_CREATE') ?: false, FILTER_VALIDATE_BOOLEAN),
     ],
 ];

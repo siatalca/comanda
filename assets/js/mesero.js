@@ -690,6 +690,9 @@
         if (token.includes("extra") || token.includes("adic") || token.includes("complement")) {
             return "Extras";
         }
+        if (token.includes("otro")) {
+            return "Otros";
+        }
         if (token.includes("agreg")
             || token.includes("acompan")
             || token.includes("guarn")
@@ -1272,7 +1275,8 @@
         const order = {
             Platos: 1,
             Bebestibles: 2,
-            Extras: 3
+            Extras: 3,
+            Otros: 4
         };
         const normalizedA = normalizeMenuCategoryLabel(categoryA);
         const normalizedB = normalizeMenuCategoryLabel(categoryB);

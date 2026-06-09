@@ -1399,6 +1399,10 @@ function normalize_product_category_label(string $category): string
         return 'Extras';
     }
 
+    if (strpos($token, 'otro') !== false) {
+        return 'Otros';
+    }
+
     if (
         strpos($token, 'agreg') !== false
         || strpos($token, 'acompan') !== false
@@ -1944,7 +1948,7 @@ function get_users_admin(PDO $pdo): array
 
 function fetch_available_printers(): array
 {
-    $baseUrl = getenv('PRINT_SERVICE_URL') ?: 'http://127.0.0.1:3003/print';
+    $baseUrl = getenv('PRINT_SERVICE_URL') ?: 'http://127.0.0.1:7003/print';
     $printersUrl = preg_replace('/\/print$/', '', $baseUrl) . '/printers';
 
     if (function_exists('curl_init')) {
@@ -2009,20 +2013,27 @@ function resolve_printer_name_for_tipo(PDO $pdo, string $tipo): string
     $modo = get_setting($pdo, 'impresora_modo', 'una');
     $cocina = trim(get_setting($pdo, 'impresora_cocina', ''));
     $caja = trim(get_setting($pdo, 'impresora_caja', ''));
+    $envPrinter = trim((string) (getenv('PRINTER_NAME') ?: ''));
     $tiposCocina = ['pedido', 'pedido_cocina'];
 
     if ($modo === 'dos') {
         if (in_array($tipo, $tiposCocina, true)) {
-            return $cocina !== '' ? $cocina : $caja;
+            if ($cocina !== '') {
+                return $cocina;
+            }
+            return $caja !== '' ? $caja : $envPrinter;
         }
-        return $caja !== '' ? $caja : $cocina;
+        if ($caja !== '') {
+            return $caja;
+        }
+        return $cocina !== '' ? $cocina : $envPrinter;
     }
 
     if ($caja !== '') {
         return $caja;
     }
 
-    return $cocina;
+    return $cocina !== '' ? $cocina : $envPrinter;
 }
 
 function ticket_paper_width_mm(PDO $pdo): int
@@ -3794,7 +3805,7 @@ function register_print_attempt(PDO $pdo, int $comandaId, string $tipo, string $
 
 function send_print_job(array $payload): array
 {
-    $serviceUrl = getenv('PRINT_SERVICE_URL') ?: 'http://127.0.0.1:3003/print';
+    $serviceUrl = getenv('PRINT_SERVICE_URL') ?: 'http://127.0.0.1:7003/print';
     $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     if ($json === false) {

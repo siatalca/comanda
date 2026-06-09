@@ -23,7 +23,8 @@ const DB_CONFIG = {
     password: String(process.env.COMANDA_DB_PASS || ""),
     database: String(process.env.COMANDA_DB_NAME || "comanda").trim(),
     charset: String(process.env.COMANDA_DB_CHARSET || "utf8mb4").trim(),
-    collation: String(process.env.COMANDA_DB_COLLATION || "utf8mb4_unicode_ci").trim()
+    collation: String(process.env.COMANDA_DB_COLLATION || "utf8mb4_unicode_ci").trim(),
+    skipCreate: isTruthy(process.env.COMANDA_DB_SKIP_CREATE)
 };
 
 const SESSION_COOKIE_NAME = String(process.env.SESSION_COOKIE_NAME || "comanda_sid");
@@ -69,19 +70,21 @@ function validateConfig() {
 }
 
 async function initDatabase() {
-    const rootConn = await mysql.createConnection({
-        host: DB_CONFIG.host,
-        port: DB_CONFIG.port,
-        user: DB_CONFIG.user,
-        password: DB_CONFIG.password,
-        charset: DB_CONFIG.charset
-    });
+    if (!DB_CONFIG.skipCreate) {
+        const rootConn = await mysql.createConnection({
+            host: DB_CONFIG.host,
+            port: DB_CONFIG.port,
+            user: DB_CONFIG.user,
+            password: DB_CONFIG.password,
+            charset: DB_CONFIG.charset
+        });
 
-    const quotedDb = `\`${DB_CONFIG.database.replace(/`/g, "``")}\``;
-    await rootConn.query(
-        `CREATE DATABASE IF NOT EXISTS ${quotedDb} CHARACTER SET ${DB_CONFIG.charset} COLLATE ${DB_CONFIG.collation}`
-    );
-    await rootConn.end();
+        const quotedDb = `\`${DB_CONFIG.database.replace(/`/g, "``")}\``;
+        await rootConn.query(
+            `CREATE DATABASE IF NOT EXISTS ${quotedDb} CHARACTER SET ${DB_CONFIG.charset} COLLATE ${DB_CONFIG.collation}`
+        );
+        await rootConn.end();
+    }
 
     pool = mysql.createPool({
         host: DB_CONFIG.host,
@@ -3072,17 +3075,18 @@ async function resolvePrinterNameForTipo(tipo) {
     const modo = await getSetting("impresora_modo", "una");
     const cocina = String(await getSetting("impresora_cocina", "")).trim();
     const caja = String(await getSetting("impresora_caja", "")).trim();
+    const envPrinter = String(process.env.PRINTER_NAME || "").trim();
     const tiposCocina = ["pedido", "pedido_cocina"];
     if (modo === "dos") {
         if (tiposCocina.includes(tipo)) {
-            return cocina || caja;
+            return cocina || caja || envPrinter;
         }
-        return caja || cocina;
+        return caja || cocina || envPrinter;
     }
     if (caja) {
         return caja;
     }
-    return cocina;
+    return cocina || envPrinter;
 }
 
 function buildOrderTicket(localName, charsWidth, mesaNumero, comandaId, items, origen, area) {
@@ -3561,6 +3565,9 @@ function normalizeProductCategoryLabel(category) {
     }
     if (token.includes("extra") || token.includes("adic") || token.includes("complement")) {
         return "Extras";
+    }
+    if (token.includes("otro")) {
+        return "Otros";
     }
     if (
         token.includes("agreg")
@@ -4141,4 +4148,9 @@ function clampFloat(value, fallback, min, max) {
         return max;
     }
     return Math.round(num * 10) / 10;
+}
+
+function isTruthy(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return ["1", "true", "yes", "si", "sí", "on"].includes(normalized);
 }

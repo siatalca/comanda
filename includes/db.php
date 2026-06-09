@@ -46,6 +46,7 @@ function db_config(): array
             'password' => '',
             'charset' => 'utf8mb4',
             'collation' => 'utf8mb4_unicode_ci',
+            'skip_create' => false,
         ],
     ];
 
@@ -71,6 +72,7 @@ function db_connect_mysql(array $config): PDO
     $password = (string) ($config['password'] ?? '');
     $charset = (string) ($config['charset'] ?? 'utf8mb4');
     $collation = (string) ($config['collation'] ?? 'utf8mb4_unicode_ci');
+    $skipCreate = filter_var($config['skip_create'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
     if ($database === '' || preg_match('/^[A-Za-z0-9_]+$/', $database) !== 1) {
         throw new RuntimeException('Nombre de base de datos MySQL invalido.');
@@ -82,10 +84,12 @@ function db_connect_mysql(array $config): PDO
         throw new RuntimeException('Collation MySQL invalida.');
     }
 
-    $serverDsn = sprintf('mysql:host=%s;port=%d;charset=%s', $host, $port, $charset);
-    $serverPdo = new PDO($serverDsn, $username, $password);
-    $quotedDb = '`' . str_replace('`', '``', $database) . '`';
-    $serverPdo->exec("CREATE DATABASE IF NOT EXISTS {$quotedDb} CHARACTER SET {$charset} COLLATE {$collation}");
+    if (!$skipCreate) {
+        $serverDsn = sprintf('mysql:host=%s;port=%d;charset=%s', $host, $port, $charset);
+        $serverPdo = new PDO($serverDsn, $username, $password);
+        $quotedDb = '`' . str_replace('`', '``', $database) . '`';
+        $serverPdo->exec("CREATE DATABASE IF NOT EXISTS {$quotedDb} CHARACTER SET {$charset} COLLATE {$collation}");
+    }
 
     $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=%s', $host, $port, $database, $charset);
     return new PDO($dsn, $username, $password);
