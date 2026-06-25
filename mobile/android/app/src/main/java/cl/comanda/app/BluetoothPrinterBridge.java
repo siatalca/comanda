@@ -33,7 +33,7 @@ import org.json.JSONObject;
 
 public class BluetoothPrinterBridge {
 
-    private static final int REQUEST_BLUETOOTH_CONNECT = 4103;
+    private static final int REQUEST_BLUETOOTH_PERMISSIONS = 4103;
     private static final String PREFS_NAME = "ComandaBluetoothPrinter";
     private static final String PREF_PRINTER_ADDRESS = "printer_address";
     private static final String PREF_PRINTER_NAME = "printer_name";
@@ -52,7 +52,7 @@ public class BluetoothPrinterBridge {
             JSONObject data = baseOk();
             data.put("available", getBluetoothAdapter() != null);
             data.put("enabled", isBluetoothEnabled());
-            data.put("permission_granted", hasBluetoothConnectPermission());
+            data.put("permission_granted", hasBluetoothRuntimePermissions());
             return data.toString();
         } catch (JSONException error) {
             return errorJson("json_error", error.getMessage());
@@ -74,8 +74,8 @@ public class BluetoothPrinterBridge {
         if (!isTrustedOrigin()) {
             return errorJson("origin_not_allowed", "Esta pagina no puede usar la impresora Bluetooth.");
         }
-        if (!hasBluetoothConnectPermission()) {
-            requestBluetoothConnectPermission();
+        if (!hasBluetoothRuntimePermissions()) {
+            requestBluetoothRuntimePermissions();
             return errorJson("permission_required", "Autoriza Dispositivos cercanos y vuelve a intentar.");
         }
         if (!ensureBluetoothReady()) {
@@ -110,8 +110,8 @@ public class BluetoothPrinterBridge {
         if (!isTrustedOrigin()) {
             return errorJson("origin_not_allowed", "Esta pagina no puede usar la impresora Bluetooth.");
         }
-        if (!hasBluetoothConnectPermission()) {
-            requestBluetoothConnectPermission();
+        if (!hasBluetoothRuntimePermissions()) {
+            requestBluetoothRuntimePermissions();
             return errorJson("permission_required", "Autoriza Dispositivos cercanos y vuelve a intentar.");
         }
         if (!ensureBluetoothReady()) {
@@ -156,8 +156,8 @@ public class BluetoothPrinterBridge {
         if (!isTrustedOrigin()) {
             return errorJson("origin_not_allowed", "Esta pagina no puede usar la impresora Bluetooth.");
         }
-        if (!hasBluetoothConnectPermission()) {
-            requestBluetoothConnectPermission();
+        if (!hasBluetoothRuntimePermissions()) {
+            requestBluetoothRuntimePermissions();
             return errorJson("permission_required", "Autoriza Dispositivos cercanos y vuelve a intentar.");
         }
         if (!ensureBluetoothReady()) {
@@ -206,8 +206,11 @@ public class BluetoothPrinterBridge {
     @SuppressLint("MissingPermission")
     private BluetoothSocket connectToDevice(BluetoothDevice device) throws IOException {
         BluetoothAdapter adapter = getBluetoothAdapter();
-        if (adapter != null) {
-            adapter.cancelDiscovery();
+        if (adapter != null && hasBluetoothScanPermission()) {
+            try {
+                adapter.cancelDiscovery();
+            } catch (SecurityException ignored) {
+            }
         }
 
         BluetoothSocket socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
@@ -227,8 +230,8 @@ public class BluetoothPrinterBridge {
     }
 
     public void requestStartupPermissionsIfNeeded() {
-        if (!hasBluetoothConnectPermission()) {
-            requestBluetoothConnectPermission();
+        if (!hasBluetoothRuntimePermissions()) {
+            requestBluetoothRuntimePermissions();
         }
     }
 
@@ -246,6 +249,13 @@ public class BluetoothPrinterBridge {
         }
     }
 
+    private boolean hasBluetoothRuntimePermissions() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return true;
+        }
+        return hasBluetoothConnectPermission() && hasBluetoothScanPermission();
+    }
+
     private boolean hasBluetoothConnectPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             return true;
@@ -253,15 +263,25 @@ public class BluetoothPrinterBridge {
         return ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void requestBluetoothConnectPermission() {
+    private boolean hasBluetoothScanPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return true;
+        }
+        return ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void requestBluetoothRuntimePermissions() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             return;
         }
         activity.runOnUiThread(() ->
             ActivityCompat.requestPermissions(
                 activity,
-                new String[] { Manifest.permission.BLUETOOTH_CONNECT },
-                REQUEST_BLUETOOTH_CONNECT
+                new String[] {
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.BLUETOOTH_SCAN
+                },
+                REQUEST_BLUETOOTH_PERMISSIONS
             )
         );
     }
