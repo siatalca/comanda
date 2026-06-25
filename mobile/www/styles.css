@@ -65,6 +65,16 @@ input {
     margin-bottom: 12px;
 }
 
+select {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 1rem;
+    padding: 12px 13px;
+    margin-bottom: 10px;
+    background: #fff;
+}
+
 button {
     width: 100%;
     border: 0;
@@ -96,6 +106,26 @@ button.secondary:hover {
     margin: 8px 0 0;
     font-size: 0.95rem;
     color: #b42318;
+}
+
+.printer-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    margin: 12px 0;
+    background: #fbfdff;
+}
+
+.printer-card h2 {
+    margin: 0 0 6px;
+    font-size: 1.05rem;
+}
+
+.printer-help {
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.4;
 }
 
 .hint {

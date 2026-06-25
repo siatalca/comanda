@@ -2857,7 +2857,8 @@ async function registerPrintAttempt(comandaId, tipo, contenido) {
             ok: true,
             estado: "omitida",
             detalle: "Impresion automatica de pedidos activa, pero sin impresora configurada.",
-            impresion_id: null
+            impresion_id: null,
+            texto: contenido
         };
     }
 
@@ -2899,7 +2900,8 @@ async function registerPrintAttempt(comandaId, tipo, contenido) {
         detalle,
         printer: response.printer || "",
         warning: response.warning || "",
-        impresion_id: impresionId
+        impresion_id: impresionId,
+        texto: contenido
     };
 }
 

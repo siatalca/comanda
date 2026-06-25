@@ -2,7 +2,6 @@ storage/comanda.sqlite
 print_jobs/*.txt
 node_modules/
 mobile/node_modules/
-mobile/android/
 mobile/ios/
 desktop.config.json
 *.log

@@ -52,6 +52,196 @@
         return `$${number.toLocaleString("es-CL", { maximumFractionDigits: 0 })}`;
     }
 
+    function nativePrinterBridge() {
+        const bridge = window.ComandaAndroidPrinter;
+        if (!bridge || typeof bridge.printText !== "function") {
+            return null;
+        }
+        return bridge;
+    }
+
+    function parseNativePrinterResult(rawResult) {
+        if (rawResult && typeof rawResult === "object") {
+            return rawResult;
+        }
+        try {
+            return JSON.parse(String(rawResult || "{}"));
+        } catch (error) {
+            return {
+                ok: false,
+                error: "Respuesta invalida de la impresora Android."
+            };
+        }
+    }
+
+    function shouldPrintWithNative(status) {
+        if (!status || typeof status !== "object") {
+            return true;
+        }
+
+        const okValue = status.ok === true ||
+            status.ok === 1 ||
+            String(status.ok).toLowerCase() === "true" ||
+            String(status.ok) === "1";
+        const estado = String(status.estado || "").toLowerCase();
+        const detalle = String(status.detalle || "").toLowerCase();
+        if (!okValue || estado === "fallida" || estado === "error") {
+            return true;
+        }
+
+        return estado === "omitida" && (
+            detalle.includes("sin impresora") ||
+            detalle.includes("impresora no valida") ||
+            detalle.includes("impresora no instalada") ||
+            detalle.includes("no se pudo imprimir") ||
+            detalle.includes("servicio de impresion") ||
+            detalle.includes("out-printer") ||
+            detalle.includes("no se pudo conectar")
+        );
+    }
+
+    function collectNativePrintJobsFromOrder(payload) {
+        const groups = payload && payload.impresiones && typeof payload.impresiones === "object"
+            ? payload.impresiones
+            : {};
+        return Object.keys(groups)
+            .map((key) => ({
+                key,
+                tipo: key,
+                status: groups[key],
+                texto: groups[key] && groups[key].texto ? String(groups[key].texto) : ""
+            }))
+            .filter((job) => job.texto && shouldPrintWithNative(job.status));
+    }
+
+    function collectNativePrintJobsFromSingle(payload, tipo) {
+        const status = payload && payload.impresion ? payload.impresion : null;
+        if (!status || !status.texto || !shouldPrintWithNative(status)) {
+            return [];
+        }
+        return [{
+            key: tipo,
+            tipo,
+            status,
+            texto: String(status.texto)
+        }];
+    }
+
+    function ensureNativePrinterSelected(bridge) {
+        const selected = parseNativePrinterResult(bridge.getSelectedPrinter());
+        if (selected.ok && selected.printer && selected.printer.address) {
+            return selected;
+        }
+
+        const list = parseNativePrinterResult(bridge.listPairedPrinters());
+        if (!list.ok) {
+            return list;
+        }
+
+        const devices = Array.isArray(list.devices) ? list.devices : [];
+        if (devices.length === 0) {
+            return {
+                ok: false,
+                error: "No hay impresoras Bluetooth emparejadas en Android."
+            };
+        }
+
+        let chosen = devices.find((device) => device.selected) ||
+            devices.find((device) => device.likely_printer) ||
+            (devices.length === 1 ? devices[0] : null);
+
+        if (!chosen && typeof window.prompt === "function") {
+            const options = devices
+                .map((device, index) => `${index + 1}) ${device.name || "Bluetooth"} ${device.address || ""}`)
+                .join("\n");
+            const answer = window.prompt(`Elige impresora Bluetooth:\n${options}`, "1");
+            const index = Number(answer || 0) - 1;
+            chosen = devices[index] || null;
+        }
+
+        if (!chosen || !chosen.address) {
+            return {
+                ok: false,
+                error: "No se selecciono impresora Bluetooth."
+            };
+        }
+
+        return parseNativePrinterResult(bridge.selectPrinter(String(chosen.address)));
+    }
+
+    function printWithNativeBluetooth(jobs) {
+        const bridge = nativePrinterBridge();
+        if (!bridge || !Array.isArray(jobs) || jobs.length === 0) {
+            return null;
+        }
+
+        const selection = ensureNativePrinterSelected(bridge);
+        if (!selection.ok) {
+            return {
+                ok: false,
+                estado: "fallida",
+                detalle: selection.error || "No se pudo seleccionar impresora Bluetooth.",
+                warning: "",
+                printer: "",
+                resultados: {}
+            };
+        }
+
+        const results = {};
+        const detailParts = [];
+        const printers = [];
+        let ok = true;
+
+        jobs.forEach((job) => {
+            const result = parseNativePrinterResult(bridge.printText(job.texto, job.tipo || "ticket"));
+            results[job.key || job.tipo || "ticket"] = result;
+            if (!result.ok) {
+                ok = false;
+            }
+            const label = String(job.key || job.tipo || "ticket").toUpperCase();
+            detailParts.push(`${label}: ${result.ok ? (result.message || "Impreso por Bluetooth Android.") : (result.error || "Fallo Bluetooth.")}`);
+            if (result.printer) {
+                printers.push(result.printer);
+            }
+        });
+
+        const uniquePrinters = [...new Set(printers)];
+        return {
+            ok,
+            estado: ok ? "enviada" : "fallida",
+            detalle: detailParts.join(" | "),
+            warning: "",
+            printer: uniquePrinters.join(", "),
+            resultados: results
+        };
+    }
+
+    function applyNativePrintStatus(payload, nativeStatus) {
+        if (!payload || !nativeStatus) {
+            return payload;
+        }
+        const current = payload.impresion && typeof payload.impresion === "object" ? payload.impresion : {};
+        payload.impresion_android = nativeStatus;
+        payload.impresion = {
+            ...current,
+            ok: nativeStatus.ok,
+            estado: nativeStatus.estado,
+            detalle: nativeStatus.detalle,
+            warning: nativeStatus.warning || "",
+            printer: nativeStatus.printer || current.printer || "",
+            android: true
+        };
+        return payload;
+    }
+
+    function maybePrintOrderWithNative(payload) {
+        return applyNativePrintStatus(payload, printWithNativeBluetooth(collectNativePrintJobsFromOrder(payload)));
+    }
+
+    function maybePrintSingleWithNative(payload, tipo) {
+        return applyNativePrintStatus(payload, printWithNativeBluetooth(collectNativePrintJobsFromSingle(payload, tipo)));
+    }
+
     window.ComandaAPI = {
         session: async function () {
             return request("session");
@@ -237,7 +427,7 @@
             return data.data || {};
         },
         sendOrder: async function (mesaNumero, items, origen) {
-            return request("send_order", {
+            const response = await request("send_order", {
                 method: "POST",
                 body: {
                     mesa_numero: mesaNumero,
@@ -245,6 +435,7 @@
                     origen: origen || "movil"
                 }
             });
+            return maybePrintOrderWithNative(response);
         },
         chargeTable: async function (mesaNumero, payment) {
             const payload = {
@@ -265,18 +456,20 @@
                 }
             }
 
-            return request("charge_table", {
+            const response = await request("charge_table", {
                 method: "POST",
                 body: payload
             });
+            return maybePrintSingleWithNative(response, "ticket");
         },
         printBill: async function (mesaNumero) {
-            return request("print_bill", {
+            const response = await request("print_bill", {
                 method: "POST",
                 body: {
                     mesa_numero: mesaNumero
                 }
             });
+            return maybePrintSingleWithNative(response, "precuenta");
         },
         removeComandaItem: async function (itemId) {
             return request("comanda_item_remove", {

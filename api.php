@@ -3746,6 +3746,7 @@ function register_print_attempt(PDO $pdo, int $comandaId, string $tipo, string $
             'estado' => 'omitida',
             'detalle' => 'Impresion automatica de pedidos activa, pero sin impresora configurada.',
             'impresion_id' => null,
+            'texto' => $contenido,
         ];
     }
 
@@ -3800,6 +3801,7 @@ function register_print_attempt(PDO $pdo, int $comandaId, string $tipo, string $
         'printer' => $response['printer'],
         'warning' => $response['warning'] ?? '',
         'impresion_id' => $impresionId,
+        'texto' => $contenido,
     ];
 }
 

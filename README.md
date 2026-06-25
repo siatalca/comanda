@@ -230,26 +230,32 @@ SetEnv PRINTER_NAME ""
 Despues reinicia Apache. Si `PRINTER_NAME` queda vacio, Windows usara la impresora predeterminada
 o la impresora guardada en el panel admin.
 
-## 8) App movil (Android/iOS con Capacitor)
+## 8) App movil Android con impresora Bluetooth
 
-Se agrego el modulo `mobile/` para empaquetar una app movil.
+Se agrego el modulo `mobile/` para empaquetar una app Android. La app abre Comanda desde una URL y puede imprimir en una impresora termica Bluetooth ESC/POS emparejada con el dispositivo.
 
 Pasos rapidos:
 
 ```powershell
 cd mobile
 npm install
-npm run add:android
 npm run sync:android
 npm run open:android
 ```
 
 Al abrirse en Android Studio, compilas y ejecutas.
 
-La app movil muestra un formulario para ingresar la URL del servidor en LAN:
+La app movil viene preconfigurada para conectarse directo al servidor:
 
 ```text
-http://IP_DEL_PC:3003/login.html
+https://comanda.mi-registro.cl/login.html
 ```
 
+Para impresora Bluetooth:
+- empareja la impresora desde Ajustes Bluetooth de Android,
+- en la app carga las impresoras emparejadas,
+- selecciona una y usa `Imprimir prueba`.
+
 Guia completa en `mobile/README.md`.
+
+Para publicar los cambios web en el servidor Nginx/PHP-FPM revisa `DEPLOY_SERVER.md`.

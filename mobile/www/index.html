@@ -9,13 +9,13 @@
 <body>
     <main class="card">
         <h1>Comanda Movil</h1>
-        <p class="subtitle">Ingresa la URL del servidor del PC en tu red local.</p>
+        <p class="subtitle">Ingresa la URL del sistema y selecciona la impresora Bluetooth del dispositivo.</p>
 
         <label for="serverUrl">URL del servidor</label>
         <input
             id="serverUrl"
             type="url"
-            placeholder="http://192.168.0.15:3003/login.html"
+            placeholder="https://comanda.mi-registro.cl/login.html"
             autocomplete="off"
             spellcheck="false"
         >
@@ -23,8 +23,21 @@
         <button id="connectButton" type="button">Conectar</button>
         <button id="resetButton" type="button" class="secondary">Cambiar URL guardada</button>
 
+        <section class="printer-card" aria-labelledby="printerTitle">
+            <h2 id="printerTitle">Impresora Bluetooth</h2>
+            <p class="printer-help">Primero empareja la impresora desde Ajustes Bluetooth de Android.</p>
+            <button id="bluetoothSettingsButton" type="button" class="secondary">Abrir ajustes Bluetooth</button>
+            <button id="loadPrintersButton" type="button" class="secondary">Cargar impresoras emparejadas</button>
+            <select id="printerSelect" aria-label="Impresoras Bluetooth emparejadas">
+                <option value="">Sin impresora seleccionada</option>
+            </select>
+            <button id="savePrinterButton" type="button" class="secondary">Guardar impresora</button>
+            <button id="testPrinterButton" type="button" class="secondary">Imprimir prueba</button>
+            <p id="printerStatus" class="status"></p>
+        </section>
+
         <p id="status" class="status"></p>
-        <p class="hint">Tip: usa la IP del PC donde corre <code>node server.js</code>.</p>
+        <p class="hint">Tip: para el servidor online usa <code>https://comanda.mi-registro.cl/login.html</code>.</p>
     </main>
 
     <script src="./app.js"></script>
