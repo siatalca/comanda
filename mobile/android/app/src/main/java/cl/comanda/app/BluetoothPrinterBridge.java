@@ -180,9 +180,9 @@ public class BluetoothPrinterBridge {
             OutputStream output = socket.getOutputStream();
             output.write(new byte[] { 0x1B, 0x40 });
             output.write(new byte[] { 0x1B, 0x74, 0x02 });
-            output.write(normalizeTicket(cleanText).getBytes(printerCharset()));
-            output.write(new byte[] { 0x0A, 0x0A, 0x0A });
-            output.write(new byte[] { 0x1D, 0x56, 0x42, 0x00 });
+            output.write(new byte[] { 0x1B, 0x32 });
+            output.flush();
+            writeTicketText(output, cleanText);
             output.flush();
 
             JSONObject data = baseOk();
@@ -352,8 +352,52 @@ public class BluetoothPrinterBridge {
             value.contains("xprinter");
     }
 
-    private String normalizeTicket(String text) {
-        return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n") + "\r\n";
+    private void writeTicketText(OutputStream output, String text) throws IOException {
+        Charset charset = printerCharset();
+        String normalized = text.replace("\r\n", "\n").replace("\r", "\n");
+        String[] lines = normalized.split("\n", -1);
+
+        for (int index = 0; index < lines.length; index++) {
+            byte[] lineBytes = lines[index].getBytes(charset);
+            writeChunked(output, lineBytes, 48);
+            output.write(new byte[] { 0x0D, 0x0A });
+            output.flush();
+            sleepQuietly(35);
+
+            if ((index + 1) % 8 == 0) {
+                sleepQuietly(120);
+            }
+        }
+
+        output.write(new byte[] { 0x1B, 0x64, 0x06 });
+        output.flush();
+        sleepQuietly(250);
+    }
+
+    private void writeChunked(OutputStream output, byte[] data, int chunkSize) throws IOException {
+        if (data == null || data.length == 0) {
+            return;
+        }
+
+        int safeChunkSize = Math.max(16, chunkSize);
+        int offset = 0;
+        while (offset < data.length) {
+            int length = Math.min(safeChunkSize, data.length - offset);
+            output.write(data, offset, length);
+            output.flush();
+            offset += length;
+            if (offset < data.length) {
+                sleepQuietly(20);
+            }
+        }
+    }
+
+    private void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private Charset printerCharset() {
