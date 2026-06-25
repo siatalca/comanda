@@ -26,7 +26,9 @@
         kitchenPopupToken: 0,
         audioContext: null,
         audioUnlocked: false,
-        mesasConfiguredCount: 0
+        mesasConfiguredCount: 0,
+        currentComandaItemCount: 0,
+        currentComandaTotal: 0
     };
 
     const refs = {};
@@ -83,6 +85,7 @@
         refs.comandaItems = document.getElementById("comandaItems");
         refs.comandaTotal = document.getElementById("comandaTotal");
         refs.btnImprimirPrecuenta = document.getElementById("btnImprimirPrecuenta");
+        refs.btnCobrarMesa = document.getElementById("btnCobrarMesa");
 
         refs.tipsSummaryText = document.getElementById("tipsSummaryText");
         refs.tipsSummaryDate = document.getElementById("tipsSummaryDate");
@@ -185,6 +188,10 @@
 
         if (refs.btnImprimirPrecuenta) {
             refs.btnImprimirPrecuenta.addEventListener("click", printBill);
+        }
+
+        if (refs.btnCobrarMesa) {
+            refs.btnCobrarMesa.addEventListener("click", chargeTable);
         }
 
         if (refs.btnLogout) {
@@ -988,6 +995,7 @@
             const summary = status && status.resumen ? status.resumen : {};
             const totalTips = Number(summary.propinas_total || 0);
             state.cashOpen = Boolean(status && status.abierta);
+            updateChargeButton(state.currentComandaItemCount > 0 && state.currentComandaTotal > 0);
 
             refs.tipsSummaryText.innerHTML = `<strong>Total Propina: ${api.money(totalTips)}</strong>`;
             if (status && status.abierta) {
@@ -1365,12 +1373,18 @@
         }
 
         if (!snapshot || !snapshot.comanda) {
+            state.currentComandaItemCount = 0;
+            state.currentComandaTotal = 0;
             refs.comandaItems.innerHTML = `<p class="empty-state">Esta mesa aun no tiene comanda abierta.</p>`;
             refs.comandaTotal.textContent = api.money(0);
+            updateChargeButton(false);
             return;
         }
 
         const items = snapshot.items || [];
+        state.currentComandaItemCount = items.length;
+        state.currentComandaTotal = Number(snapshot.comanda.total || 0);
+        updateChargeButton(state.currentComandaItemCount > 0 && state.currentComandaTotal > 0);
         const canRemove = canRemoveComandaItems();
         if (items.length === 0) {
             refs.comandaItems.innerHTML = `<p class="empty-state">Sin items cargados.</p>`;
@@ -1566,6 +1580,303 @@
         } catch (error) {
             toast(error.message, "error");
         }
+    }
+
+    async function chargeTable() {
+        const mesaNumero = Number(state.mesaNumero || 0);
+        if (mesaNumero <= 0) {
+            toast("Selecciona una mesa primero.", "error");
+            state.viewMode = "selector";
+            updateViewMode();
+            return;
+        }
+
+        if (!state.cashOpen) {
+            toast("Caja cerrada. Pide a caja/admin abrir caja antes de cobrar.", "error");
+            return;
+        }
+
+        let totalMesa = 0;
+        try {
+            const snapshot = await api.getComanda(mesaNumero);
+            totalMesa = Number(snapshot && snapshot.comanda ? snapshot.comanda.total : 0);
+            renderComanda(snapshot);
+        } catch (error) {
+            toast(error.message, "error");
+            return;
+        }
+
+        if (!Number.isFinite(totalMesa) || totalMesa <= 0) {
+            toast("La mesa no tiene total valido para cobrar.", "error");
+            return;
+        }
+
+        const payment = await pickPaymentMethod(mesaNumero, totalMesa);
+        if (!payment) {
+            return;
+        }
+
+        if (refs.btnCobrarMesa) {
+            refs.btnCobrarMesa.disabled = true;
+        }
+
+        try {
+            const response = await api.chargeTable(mesaNumero, payment);
+            await Promise.all([loadMesas(true), loadTipSummary(true)]);
+
+            const printStatus = response && response.impresion ? response.impresion : null;
+            if (printStatus && !printStatus.ok) {
+                toast(`Mesa cobrada, pero fallo impresion: ${printStatus.detalle}`, "error");
+            } else if (printStatus && printStatus.warning) {
+                toast(`Mesa cobrada. Aviso impresion: ${printStatus.warning}`, "error");
+            } else {
+                const tip = Number(response.propina || 0);
+                const tipText = tip > 0 ? ` + Propina: ${api.money(tip)}` : "";
+                toast(`Mesa cobrada y cerrada. Total: ${api.money(response.total || 0)}${tipText}`);
+            }
+
+            state.cart.clear();
+            state.plateConfigsByProductId.clear();
+            state.currentComandaItemCount = 0;
+            state.currentComandaTotal = 0;
+            state.viewMode = "selector";
+            state.mesaNumero = null;
+            renderCart();
+            renderMenu();
+            updateViewMode();
+            renderMesaCards();
+            paintMesaStatus();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        } catch (error) {
+            toast(error.message, "error");
+        } finally {
+            updateChargeButton(state.viewMode === "pedido" && state.currentComandaItemCount > 0 && state.currentComandaTotal > 0);
+        }
+    }
+
+    function updateChargeButton(enabled) {
+        if (!refs.btnCobrarMesa) {
+            return;
+        }
+        refs.btnCobrarMesa.disabled = !enabled || !state.cashOpen;
+    }
+
+    function pickPaymentMethod(mesaNumero, total) {
+        return new Promise((resolve) => {
+            const totalValue = Number(total || 0);
+            const tipEnabled = Boolean(state.tipEnabled);
+            const tipPercent = Number(state.tipPercent || 10);
+            const suggestedTip = tipEnabled ? Math.round(((totalValue * tipPercent) / 100) * 100) / 100 : 0;
+            const overlay = document.createElement("div");
+            overlay.className = "cash-gate";
+            overlay.innerHTML = `
+                <div class="cash-gate-card">
+                    <h2>Cobrar mesa ${mesaNumero}</h2>
+                    <p class="muted">Total a cobrar: <strong>${api.money(totalValue)}</strong></p>
+                    <form class="form-grid">
+                        <label>
+                            Metodo de pago
+                            <select id="paymentMethodSelect">
+                                <option value="efectivo">Efectivo</option>
+                                <option value="tarjeta">Tarjeta</option>
+                                <option value="transferencia">Transferencia</option>
+                                <option value="mixto">Pago mixto</option>
+                            </select>
+                        </label>
+                        <div id="tipFields" class="${tipEnabled ? "" : "hidden"}">
+                            <p class="muted">Propina sugerida (${tipPercent}%): <strong>${api.money(suggestedTip)}</strong></p>
+                            <label>
+                                Propina a registrar (opcional)
+                                <input id="tipAmount" type="number" min="0" step="1" value="${tipEnabled ? suggestedTip : 0}">
+                            </label>
+                        </div>
+                        <div id="splitPaymentFields" class="split-payment-fields hidden">
+                            <p class="muted">Ingresa los montos por metodo.</p>
+                            <label>
+                                Efectivo
+                                <input id="splitCash" type="number" min="0" step="1" value="0">
+                            </label>
+                            <label>
+                                Tarjeta
+                                <input id="splitCard" type="number" min="0" step="1" value="0">
+                            </label>
+                            <label>
+                                Transferencia
+                                <input id="splitTransfer" type="number" min="0" step="1" value="0">
+                            </label>
+                            <p id="splitPaymentSummary" class="muted">Pendiente: ${api.money(totalValue)}</p>
+                        </div>
+                        <p id="paymentModalError" class="text-error hidden"></p>
+                        <div class="action-row">
+                            <button type="button" class="btn btn-outline" data-action="cancel">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Confirmar cobro</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            const form = overlay.querySelector("form");
+            const select = overlay.querySelector("#paymentMethodSelect");
+            const cancelButton = overlay.querySelector("[data-action='cancel']");
+            const splitFields = overlay.querySelector("#splitPaymentFields");
+            const splitCash = overlay.querySelector("#splitCash");
+            const splitCard = overlay.querySelector("#splitCard");
+            const splitTransfer = overlay.querySelector("#splitTransfer");
+            const splitSummary = overlay.querySelector("#splitPaymentSummary");
+            const modalError = overlay.querySelector("#paymentModalError");
+            const tipInput = overlay.querySelector("#tipAmount");
+            let closed = false;
+
+            function close(value) {
+                if (closed) {
+                    return;
+                }
+                closed = true;
+                document.removeEventListener("keydown", onKeyDown);
+                overlay.remove();
+                resolve(value);
+            }
+
+            function showError(message) {
+                modalError.textContent = message;
+                modalError.classList.remove("hidden");
+            }
+
+            function hideError() {
+                modalError.textContent = "";
+                modalError.classList.add("hidden");
+            }
+
+            function readAmount(input) {
+                const value = Number(input.value || 0);
+                if (!Number.isFinite(value) || value <= 0) {
+                    return 0;
+                }
+                return Math.round(value * 100) / 100;
+            }
+
+            function readTipAmount() {
+                if (!tipEnabled || !tipInput) {
+                    return 0;
+                }
+                const value = Number(tipInput.value || 0);
+                if (!Number.isFinite(value) || value <= 0) {
+                    return 0;
+                }
+                return Math.round(value * 100) / 100;
+            }
+
+            function splitTotal() {
+                return readAmount(splitCash) + readAmount(splitCard) + readAmount(splitTransfer);
+            }
+
+            function updateSplitSummary() {
+                const paid = splitTotal();
+                const diff = Math.round((totalValue - paid) * 100) / 100;
+                if (Math.abs(diff) <= 0.01) {
+                    splitSummary.textContent = `Total completo: ${api.money(totalValue)}`;
+                    syncSplitLocks();
+                    return;
+                }
+                if (diff > 0) {
+                    splitSummary.textContent = `Falta por asignar: ${api.money(diff)}`;
+                    syncSplitLocks();
+                    return;
+                }
+                splitSummary.textContent = `Exceso asignado: ${api.money(Math.abs(diff))}`;
+                syncSplitLocks();
+            }
+
+            function syncSplitLocks() {
+                const paid = splitTotal();
+                const diff = Math.round((totalValue - paid) * 100) / 100;
+                const isComplete = Math.abs(diff) <= 0.01;
+                [splitCash, splitCard, splitTransfer].forEach((input) => {
+                    const amount = readAmount(input);
+                    input.disabled = isComplete && amount <= 0;
+                });
+            }
+
+            function toggleSplitFields() {
+                const mixed = select.value === "mixto";
+                splitFields.classList.toggle("hidden", !mixed);
+                if (mixed) {
+                    updateSplitSummary();
+                } else {
+                    [splitCash, splitCard, splitTransfer].forEach((input) => {
+                        input.disabled = false;
+                    });
+                    hideError();
+                }
+            }
+
+            function onKeyDown(event) {
+                if (event.key === "Escape") {
+                    close(null);
+                }
+            }
+
+            overlay.addEventListener("click", (event) => {
+                if (event.target === overlay) {
+                    close(null);
+                }
+            });
+
+            cancelButton.addEventListener("click", () => close(null));
+            select.addEventListener("change", toggleSplitFields);
+            [splitCash, splitCard, splitTransfer].forEach((input) => {
+                input.addEventListener("input", () => {
+                    hideError();
+                    updateSplitSummary();
+                });
+            });
+
+            form.addEventListener("submit", (event) => {
+                event.preventDefault();
+                hideError();
+                const method = select.value || "efectivo";
+                if (method !== "mixto") {
+                    close({ metodo: method, propina: readTipAmount() });
+                    return;
+                }
+
+                const rows = [];
+                const cash = readAmount(splitCash);
+                const card = readAmount(splitCard);
+                const transfer = readAmount(splitTransfer);
+
+                if (cash > 0) {
+                    rows.push({ metodo: "efectivo", monto: cash });
+                }
+                if (card > 0) {
+                    rows.push({ metodo: "tarjeta", monto: card });
+                }
+                if (transfer > 0) {
+                    rows.push({ metodo: "transferencia", monto: transfer });
+                }
+
+                if (rows.length === 0) {
+                    showError("Ingresa al menos un monto para pago mixto.");
+                    return;
+                }
+
+                const paid = Math.round((cash + card + transfer) * 100) / 100;
+                if (Math.abs(paid - totalValue) > 0.01) {
+                    showError(`La suma debe ser ${api.money(totalValue)}.`);
+                    return;
+                }
+
+                close({
+                    metodo: "mixto",
+                    pagos: rows,
+                    propina: readTipAmount()
+                });
+            });
+
+            document.addEventListener("keydown", onKeyDown);
+            document.body.appendChild(overlay);
+            toggleSplitFields();
+        });
     }
 
     function toast(message, type) {
