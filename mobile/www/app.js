@@ -1,6 +1,7 @@
 const STORAGE_KEY = "comanda_server_url";
 const DEFAULT_SERVER_URL = "https://comanda.mi-registro.cl/login.html";
 const DEFAULT_PATH = "/login.html";
+const AUTO_CONNECT_DELAY_MS = 700;
 
 const input = document.getElementById("serverUrl");
 const connectButton = document.getElementById("connectButton");
@@ -23,8 +24,15 @@ connectButton.addEventListener("click", () => {
     }
 
     localStorage.setItem(STORAGE_KEY, normalized);
-    setStatus("Conectando...");
-    window.location.href = normalized;
+    const bridge = printerBridge();
+    if (bridge && !getSavedPrinter(bridge)) {
+        setStatus("URL guardada. Primero selecciona y guarda la impresora Bluetooth.");
+        setPrinterStatus("Selecciona una impresora y presiona Guardar impresora.");
+        loadPrinters();
+        return;
+    }
+
+    redirectToServer(normalized);
 });
 
 resetButton.addEventListener("click", () => {
@@ -58,7 +66,20 @@ savePrinterButton.addEventListener("click", () => {
         return;
     }
     const result = parsePrinterResult(bridge.selectPrinter(address));
-    setPrinterStatus(result.ok ? "Impresora guardada." : (result.error || "No se pudo guardar."));
+    if (!result.ok) {
+        setPrinterStatus(result.error || "No se pudo guardar.");
+        return;
+    }
+
+    const printerName = result.printer && result.printer.name ? result.printer.name : "Bluetooth";
+    setPrinterStatus(`Impresora guardada: ${printerName}.`);
+
+    const normalized = normalizeUrl(input.value);
+    if (normalized) {
+        localStorage.setItem(STORAGE_KEY, normalized);
+        setStatus("Configuracion lista. Conectando...");
+        window.setTimeout(() => redirectToServer(normalized), AUTO_CONNECT_DELAY_MS);
+    }
 });
 
 testPrinterButton.addEventListener("click", () => {
@@ -83,13 +104,25 @@ testPrinterButton.addEventListener("click", () => {
 function init() {
     const stored = localStorage.getItem(STORAGE_KEY);
     input.value = stored || DEFAULT_SERVER_URL;
-    setStatus(stored ? "URL guardada cargada. Presiona Conectar o cambia la URL." : "Servidor oficial cargado. Presiona Conectar.");
 
-    if (printerBridge()) {
-        loadPrinters();
-    } else {
+    const bridge = printerBridge();
+    if (!bridge) {
+        setStatus(stored ? "URL guardada cargada. Presiona Conectar o cambia la URL." : "Servidor oficial cargado. Presiona Conectar.");
         setPrinterStatus("Configura la impresora al abrir desde la app Android.");
+        return;
     }
+
+    const savedPrinter = getSavedPrinter(bridge);
+    if (stored && savedPrinter) {
+        const printerName = savedPrinter.name || "Bluetooth";
+        setPrinterStatus(`Impresora guardada: ${printerName}.`);
+        setStatus("Configuracion lista. Conectando...");
+        window.setTimeout(() => redirectToServer(stored), AUTO_CONNECT_DELAY_MS);
+        return;
+    }
+
+    setStatus(stored ? "URL guardada. Configura la impresora para entrar." : "Servidor oficial cargado. Configura la impresora para entrar.");
+    loadPrinters();
 }
 
 function normalizeUrl(rawValue) {
@@ -144,6 +177,23 @@ function parsePrinterResult(rawResult) {
             error: "Respuesta invalida de Bluetooth."
         };
     }
+}
+
+function getSavedPrinter(bridge) {
+    if (!bridge || typeof bridge.getSelectedPrinter !== "function") {
+        return null;
+    }
+
+    const result = parsePrinterResult(bridge.getSelectedPrinter());
+    if (result.ok && result.printer && result.printer.address) {
+        return result.printer;
+    }
+    return null;
+}
+
+function redirectToServer(url) {
+    setStatus("Conectando...");
+    window.location.replace(url);
 }
 
 function loadPrinters() {
