@@ -114,9 +114,10 @@
             .filter((job) => job.texto && shouldPrintWithNative(job.status));
     }
 
-    function collectNativePrintJobsFromSingle(payload, tipo) {
+    function collectNativePrintJobsFromSingle(payload, tipo, options = {}) {
         const status = payload && payload.impresion ? payload.impresion : null;
-        if (!status || !status.texto || !shouldPrintWithNative(status)) {
+        const force = Boolean(options.force);
+        if (!status || !status.texto || (!force && !shouldPrintWithNative(status))) {
             return [];
         }
         return [{
@@ -238,8 +239,8 @@
         return applyNativePrintStatus(payload, printWithNativeBluetooth(collectNativePrintJobsFromOrder(payload)));
     }
 
-    function maybePrintSingleWithNative(payload, tipo) {
-        return applyNativePrintStatus(payload, printWithNativeBluetooth(collectNativePrintJobsFromSingle(payload, tipo)));
+    function maybePrintSingleWithNative(payload, tipo, options = {}) {
+        return applyNativePrintStatus(payload, printWithNativeBluetooth(collectNativePrintJobsFromSingle(payload, tipo, options)));
     }
 
     window.ComandaAPI = {
@@ -442,11 +443,13 @@
                 mesa_numero: mesaNumero,
                 metodo: "efectivo"
             };
+            let forceNativePrint = false;
 
             if (typeof payment === "string") {
                 payload.metodo = payment || "efectivo";
             } else if (payment && typeof payment === "object") {
                 payload.metodo = payment.metodo || "efectivo";
+                forceNativePrint = Boolean(payment.forceNativePrint || payment.imprimir_comprobante_android);
                 if (Array.isArray(payment.pagos) && payment.pagos.length > 0) {
                     payload.pagos = payment.pagos;
                 }
@@ -460,7 +463,7 @@
                 method: "POST",
                 body: payload
             });
-            return maybePrintSingleWithNative(response, "ticket");
+            return maybePrintSingleWithNative(response, "ticket", { force: forceNativePrint });
         },
         printBill: async function (mesaNumero) {
             const response = await request("print_bill", {

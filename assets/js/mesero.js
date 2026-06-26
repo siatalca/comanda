@@ -1621,7 +1621,10 @@
         }
 
         try {
-            const response = await api.chargeTable(mesaNumero, payment);
+            const response = await api.chargeTable(mesaNumero, {
+                ...payment,
+                forceNativePrint: true
+            });
             await Promise.all([loadMesas(true), loadTipSummary(true)]);
 
             const printStatus = response && response.impresion ? response.impresion : null;
